@@ -136,6 +136,7 @@
   <div class="wrap">
     <div class="toolbar">
       <button class="btn btn-sm" id="usersBtn">Tài khoản & giáo viên</button>
+      <button class="btn btn-sm" id="examsBtn">Bài kiểm tra</button>
       <button class="btn btn-sm" id="syncBtn">Đồng bộ nhóm</button>
       <button class="btn btn-sm" id="validateBtn">Kiểm tra danh sách</button>
       <span class="spacer"></span>
@@ -150,6 +151,9 @@
 
     <!-- Màn tài khoản (admin) -->
     <div id="usersScreen" class="hidden"></div>
+
+    <!-- Màn bài kiểm tra -->
+    <div id="examsScreen" class="hidden"></div>
   </div>
 </div>
 
@@ -183,6 +187,7 @@ async function showApp(){
   $('#whoami').textContent = USER.fullName + ' · ' + (USER.role==='admin'?'Quản trị':'Giáo viên');
   $('#usersBtn').classList.toggle('hidden', USER.role!=='admin');
   $('#syncBtn').classList.toggle('hidden', USER.role==='admin');
+  $('#examsBtn').classList.toggle('hidden', USER.role==='admin');
   openRoster();
   await loadGroups();
 }
@@ -208,7 +213,7 @@ $('#logoutBtn').onclick = async ()=>{
 };
 
 /* ---------- Nhóm & học sinh ---------- */
-function openRoster(){ $('#rosterScreen').classList.remove('hidden'); $('#usersScreen').classList.add('hidden'); }
+function openRoster(){ $('#rosterScreen').classList.remove('hidden'); $('#usersScreen').classList.add('hidden'); $('#examsScreen').classList.add('hidden'); }
 $('#reloadBtn').onclick = ()=>{ if($('#usersScreen').classList.contains('hidden')){ loadGroups(); } else { openUsers(); } };
 
 async function loadGroups(){
@@ -382,7 +387,7 @@ function dai(u){
   return p3(u.rangeStart)+'–'+p3(u.rangeEnd);
 }
 async function openUsers(){
-  $('#rosterScreen').classList.add('hidden'); $('#usersScreen').classList.remove('hidden');
+  $('#rosterScreen').classList.add('hidden'); $('#examsScreen').classList.add('hidden'); $('#usersScreen').classList.remove('hidden');
   $('#usersScreen').innerHTML = '<p class="muted">Đang tải…</p>';
   try{
     const r = await apiCall('listUsers');
@@ -454,6 +459,277 @@ function openNewUser(){
     }catch(e){ toast(e.message, true); }
   };
 }
+
+/* ================= BÀI KIỂM TRA ================= */
+let EX = { bai:null, cfg:null, ans:{}, curMaDe:null };
+
+$('#examsBtn').onclick = openExams;
+function openExams(){
+  $('#rosterScreen').classList.add('hidden'); $('#usersScreen').classList.add('hidden');
+  $('#examsScreen').classList.remove('hidden');
+  renderBaiList();
+}
+
+async function renderBaiList(){
+  $('#examsScreen').innerHTML = '<p class="muted">Đang tải…</p>';
+  try{
+    const r = await apiCall('listBai');
+    const rows = r.bai.map(b=>`<tr>
+      <td>${esc(b.tenBai)}</td><td class="muted">${esc(b.ngay||'')}</td>
+      <td>${b.cacNhom.map(esc).join(', ')}</td>
+      <td>${b.soMaDe} mã</td>
+      <td>${esc(b.trangThai)}</td>
+      <td class="act"><button class="btn btn-sm" data-m="${esc(b.maBai)}" data-act="open">Mở</button></td>
+    </tr>`).join('') || '<tr><td colspan="6" class="muted">Chưa có bài nào.</td></tr>';
+    $('#examsScreen').innerHTML = `
+      <div class="toolbar"><button class="btn btn-sm" id="exBack">← Về danh sách lớp</button><span class="spacer"></span>
+        <button class="btn btn-sm btn-primary" id="exNew">Tạo bài mới</button></div>
+      <table><thead><tr><th>Tên bài</th><th>Ngày</th><th>Nhóm</th><th>Mã đề</th><th>Trạng thái</th><th></th></tr></thead>
+      <tbody>${rows}</tbody></table>`;
+    $('#exBack').onclick = openRoster;
+    $('#exNew').onclick = ()=> startConfig(null);
+    document.querySelectorAll('#examsScreen [data-act="open"]').forEach(b=> b.onclick = ()=> openBai(b.dataset.m));
+  }catch(e){ handleErr(e); }
+}
+
+function blankCfg(){
+  return { p1:{on:true,soCau:18,diem:4.5}, p2:{on:true,soCau:4,d1:0.1,d2:0.25,d3:0.5,d4:1.0}, p3:{on:true,soCau:6,diem:1.5}, maDeList:[] };
+}
+function cfgTotal(c){
+  let t=0;
+  if(c.p1.on) t+=Number(c.p1.diem)||0;
+  if(c.p2.on) t+=(Number(c.p2.soCau)||0)*(Number(c.p2.d4)||0);
+  if(c.p3.on) t+=Number(c.p3.diem)||0;
+  return t;
+}
+
+async function startConfig(maBai){
+  // maBai null = tạo mới; nếu có = sửa cấu hình bài cũ
+  EX = { bai:null, cfg:blankCfg(), ans:{}, curMaDe:null };
+  let groups=[];
+  try{ groups = (await apiCall('listGroups')).groups; }catch(e){ handleErr(e); return; }
+  if(maBai){
+    try{ const b = await apiCall('getBai',{maBai}); EX.bai=b; EX.cfg=b.cauHinh; EX.ans=b.dapAn||{}; }catch(e){ handleErr(e); return; }
+  }
+  renderConfig(groups);
+}
+
+function renderConfig(groups){
+  const c = EX.cfg;
+  const checkedNhom = new Set((EX.bai?EX.bai.cacNhom:[]));
+  const nhomBoxes = groups.map(g=>`<label style="display:inline-flex;align-items:center;gap:6px;margin:4px 10px 4px 0">
+     <input type="checkbox" class="exNhom" value="${esc(g.maNhom)}" ${checkedNhom.has(g.maNhom)?'checked':''}> ${esc(g.tenNhom)}</label>`).join('');
+  function partRow(key,label,fields){ return fields; }
+  $('#examsScreen').innerHTML = `
+    <div class="toolbar"><button class="btn btn-sm" id="exCancel">← Hủy</button>
+      <span class="panel-title" style="margin:0 8px">${EX.bai?'Sửa bài':'Tạo bài mới'}</span></div>
+    <div class="card" style="padding:18px;max-width:640px">
+      <div class="field"><label>Tên bài</label><input id="cfgTen" value="${EX.bai?esc(EX.bai.tenBai):''}" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px"></div>
+      <div class="field"><label>Ngày kiểm tra</label><input id="cfgNgay" type="date" value="${EX.bai?esc(EX.bai.ngay):''}" style="padding:10px;border:1px solid var(--line);border-radius:8px"></div>
+      <div class="field"><label>Nhóm làm bài</label><div>${nhomBoxes||'<span class="muted">Chưa có nhóm</span>'}</div></div>
+
+      <div class="field" style="border-top:1px solid var(--line);padding-top:12px">
+        <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="p1on" ${c.p1.on?'checked':''}> <b>Phần I — trắc nghiệm A/B/C/D</b></label>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <div style="flex:1"><label>Số câu</label><input id="p1n" type="number" min="0" value="${c.p1.soCau}" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px"></div>
+          <div style="flex:1"><label>Tổng điểm phần</label><input id="p1d" type="number" step="0.05" value="${c.p1.diem}" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px"></div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="p2on" ${c.p2.on?'checked':''}> <b>Phần II — đúng/sai 4 ý</b></label>
+        <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+          <div style="flex:1;min-width:90px"><label>Số câu</label><input id="p2n" type="number" min="0" value="${c.p2.soCau}" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px"></div>
+          <div style="flex:1;min-width:70px"><label>Đúng 1 ý</label><input id="p2d1" type="number" step="0.05" value="${c.p2.d1}" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px"></div>
+          <div style="flex:1;min-width:70px"><label>2 ý</label><input id="p2d2" type="number" step="0.05" value="${c.p2.d2}" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px"></div>
+          <div style="flex:1;min-width:70px"><label>3 ý</label><input id="p2d3" type="number" step="0.05" value="${c.p2.d3}" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px"></div>
+          <div style="flex:1;min-width:70px"><label>4 ý</label><input id="p2d4" type="number" step="0.05" value="${c.p2.d4}" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px"></div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="p3on" ${c.p3.on?'checked':''}> <b>Phần III — trả lời ngắn (số)</b></label>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <div style="flex:1"><label>Số câu</label><input id="p3n" type="number" min="0" value="${c.p3.soCau}" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px"></div>
+          <div style="flex:1"><label>Tổng điểm phần</label><input id="p3d" type="number" step="0.05" value="${c.p3.diem}" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px"></div>
+        </div>
+      </div>
+
+      <div class="field" style="border-top:1px solid var(--line);padding-top:12px">
+        <label>Mã đề (cách nhau bởi dấu phẩy, ví dụ 1,2,3,4 → 001…)</label>
+        <input id="cfgMaDe" value="${(EX.cfg.maDeList||[]).join(', ')}" placeholder="1, 2, 3, 4" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px">
+      </div>
+
+      <div style="display:flex;align-items:center;gap:12px;margin-top:8px">
+        <div>Tổng điểm tối đa: <b id="cfgTotal">0</b> / 10</div>
+        <span class="spacer" style="flex:1"></span>
+        <button class="btn btn-primary" id="cfgNext">Tiếp tục nhập đáp án</button>
+      </div>
+    </div>`;
+  $('#exCancel').onclick = openExams;
+  const recompute = ()=>{
+    EX.cfg = readConfigForm();
+    $('#cfgTotal').textContent = cfgTotal(EX.cfg).toFixed(2);
+  };
+  ['p1on','p1n','p1d','p2on','p2n','p2d1','p2d2','p2d3','p2d4','p3on','p3n','p3d'].forEach(id=> $('#'+id).addEventListener('input', recompute));
+  recompute();
+  $('#cfgNext').onclick = saveConfigAndGoAnswers;
+}
+
+function readConfigForm(){
+  const num = id => Number($('#'+id).value)||0;
+  const mad = $('#cfgMaDe').value.split(',').map(s=>s.trim()).filter(Boolean).map(s=>/^\d+$/.test(s)?('00'+parseInt(s,10)).slice(-3):s);
+  return {
+    p1:{on:$('#p1on').checked, soCau:num('p1n'), diem:num('p1d')},
+    p2:{on:$('#p2on').checked, soCau:num('p2n'), d1:num('p2d1'),d2:num('p2d2'),d3:num('p2d3'),d4:num('p2d4')},
+    p3:{on:$('#p3on').checked, soCau:num('p3n'), diem:num('p3d')},
+    maDeList: mad
+  };
+}
+
+async function saveConfigAndGoAnswers(){
+  EX.cfg = readConfigForm();
+  const cacNhom = Array.from(document.querySelectorAll('.exNhom:checked')).map(x=>x.value);
+  const tenBai = $('#cfgTen').value.trim();
+  const ngay = $('#cfgNgay').value;
+  if(!tenBai){ toast('Nhập tên bài', true); return; }
+  if(Math.abs(cfgTotal(EX.cfg)-10)>0.01){ toast('Tổng điểm phải bằng 10', true); return; }
+  if(!EX.cfg.maDeList.length){ toast('Nhập ít nhất 1 mã đề', true); return; }
+  try{
+    if(EX.bai){
+      await apiCall('updateBai',{maBai:EX.bai.maBai, tenBai, ngay, cacNhom, cauHinh:EX.cfg});
+      EX.bai = await apiCall('getBai',{maBai:EX.bai.maBai});
+    } else {
+      const r = await apiCall('createBai',{tenBai, ngay, cacNhom, cauHinh:EX.cfg});
+      EX.bai = await apiCall('getBai',{maBai:r.maBai});
+    }
+    EX.cfg = EX.bai.cauHinh; EX.ans = EX.bai.dapAn||{};
+    EX.curMaDe = EX.cfg.maDeList[0];
+    renderAnswers();
+  }catch(e){ toast(e.message, true); }
+}
+
+function ensureAns(md){
+  if(!EX.ans[md]) EX.ans[md]={p1:[],p2:[],p3:[]};
+  if(!EX.ans[md].p1) EX.ans[md].p1=[];
+  if(!EX.ans[md].p2) EX.ans[md].p2=[];
+  if(!EX.ans[md].p3) EX.ans[md].p3=[];
+  return EX.ans[md];
+}
+
+function renderAnswers(){
+  const c = EX.cfg, md = EX.curMaDe;
+  const tabs = c.maDeList.map(x=>`<button class="btn btn-sm ${x===md?'btn-primary':''}" data-md="${esc(x)}">${esc(x)}</button>`).join(' ');
+  const a = ensureAns(md);
+  let html = '';
+
+  if(c.p1.on){
+    let rows='';
+    for(let i=0;i<c.p1.soCau;i++){
+      const sel=a.p1[i]||'';
+      rows += `<div class="arow"><span class="cn">${i+1}</span>${['A','B','C','D'].map(L=>`<button class="seg ${sel===L?'on':''}" data-p="p1" data-i="${i}" data-v="${L}">${L}</button>`).join('')}</div>`;
+    }
+    html += `<h3 style="margin:14px 0 6px">Phần I</h3><div class="agrid">${rows}</div>`;
+  }
+  if(c.p2.on){
+    let rows='';
+    for(let i=0;i<c.p2.soCau;i++){
+      const s=(a.p2[i]||'____').padEnd(4,'_').slice(0,4);
+      const yrow = [0,1,2,3].map(k=>{
+        const v=s[k];
+        return `<span class="yrow"><b>${'abcd'[k]}</b>`+
+          `<button class="seg ${v==='Đ'?'on':''}" data-p="p2" data-i="${i}" data-k="${k}" data-v="Đ">Đ</button>`+
+          `<button class="seg ${v==='S'?'on':''}" data-p="p2" data-i="${i}" data-k="${k}" data-v="S">S</button></span>`;
+      }).join('');
+      rows += `<div class="arow p2row"><span class="cn">${i+1}</span>${yrow}</div>`;
+    }
+    html += `<h3 style="margin:14px 0 6px">Phần II</h3><div class="agrid">${rows}</div>`;
+  }
+  if(c.p3.on){
+    let rows='';
+    for(let i=0;i<c.p3.soCau;i++){
+      rows += `<div class="arow"><span class="cn">${i+1}</span><input class="p3in" data-i="${i}" value="${esc(a.p3[i]||'')}" placeholder="vd 8 hoặc 0,31" style="padding:6px 8px;border:1px solid var(--line);border-radius:6px;max-width:140px"></div>`;
+    }
+    html += `<h3 style="margin:14px 0 6px">Phần III</h3><div class="agrid">${rows}</div>`;
+  }
+
+  $('#examsScreen').innerHTML = `
+    <style>
+      .agrid{display:flex;flex-wrap:wrap;gap:6px 18px}
+      .arow{display:flex;align-items:center;gap:4px}
+      .arow .cn{display:inline-block;min-width:26px;color:var(--muted);text-align:right;font-size:13px}
+      .seg{border:1px solid var(--line);background:#fff;border-radius:6px;padding:4px 9px;font-size:13px;font-weight:600}
+      .seg.on{background:var(--primary);border-color:var(--primary);color:#fff}
+      .p2row{width:100%}
+      .yrow{display:inline-flex;align-items:center;gap:3px;margin-right:8px}
+      .yrow b{font-weight:600;color:var(--muted);margin-right:2px}
+    </style>
+    <div class="toolbar"><button class="btn btn-sm" id="ansBack">← Sửa cấu hình</button>
+      <span class="panel-title" style="margin:0 8px">${esc(EX.bai.tenBai)} — nhập đáp án</span></div>
+    <div class="toolbar"><span class="muted" style="margin-right:6px">Mã đề:</span>${tabs}
+      <span class="spacer"></span>
+      <button class="btn btn-sm" id="ansPaste">Dán nhanh mã ${esc(md)}</button></div>
+    <div class="card" style="padding:16px">${html}</div>
+    <div class="toolbar" style="margin-top:12px">
+      <button class="btn btn-primary" id="ansSave">Lưu đáp án</button>
+      <button class="btn" id="ansGen">Sinh file đáp án cho TNMaker</button>
+      <span class="spacer"></span>
+      <span id="ansFileLink"></span>
+    </div>`;
+
+  $('#ansBack').onclick = ()=> startConfig(EX.bai.maBai);
+  document.querySelectorAll('#examsScreen [data-md]').forEach(b=> b.onclick=()=>{ collectVisible(); EX.curMaDe=b.dataset.md; renderAnswers(); });
+  document.querySelectorAll('#examsScreen .seg[data-p="p1"]').forEach(b=> b.onclick=()=>{ collectVisible(); const a=ensureAns(md); a.p1[+b.dataset.i]=b.dataset.v; renderAnswers(); });
+  document.querySelectorAll('#examsScreen .seg[data-p="p2"]').forEach(b=> b.onclick=()=>{
+    collectVisible(); const a=ensureAns(md); let s=(a.p2[+b.dataset.i]||'____').padEnd(4,'_').split('');
+    s[+b.dataset.k]=b.dataset.v; a.p2[+b.dataset.i]=s.join(''); renderAnswers();
+  });
+  $('#ansPaste').onclick = ()=> openPaste(md);
+  $('#ansSave').onclick = saveAnswers;
+  $('#ansGen').onclick = genFile;
+  if(EX.bai.dapAnFile) showFileLink(EX.bai.dapAnFile);
+}
+
+function collectVisible(){
+  const md = EX.curMaDe; const a = ensureAns(md);
+  document.querySelectorAll('#examsScreen .p3in').forEach(inp=>{ a.p3[+inp.dataset.i]=inp.value.trim(); });
+}
+
+function openPaste(md){
+  const c=EX.cfg;
+  overlay(`
+    <h2>Dán nhanh đáp án mã ${esc(md)}</h2>
+    ${c.p1.on?`<div class="field"><label>Phần I — ${c.p1.soCau} câu, dán liền (vd BACDA…)</label><input id="pz1" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px"></div>`:''}
+    ${c.p2.on?`<div class="field"><label>Phần II — ${c.p2.soCau} câu, mỗi câu 4 ký tự Đ/S, cách nhau bởi dấu cách (vd ĐSSĐ SSĐĐ …)</label><input id="pz2" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px"></div>`:''}
+    ${c.p3.on?`<div class="field"><label>Phần III — ${c.p3.soCau} câu, cách nhau bởi dấu cách (vd 8 0,31 157 …)</label><input id="pz3" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px"></div>`:''}
+    <div class="row"><button class="btn" onclick="closeOverlay()">Hủy</button><button class="btn btn-primary" id="pzGo">Áp dụng</button></div>
+  `);
+  $('#pzGo').onclick = ()=>{
+    const a=ensureAns(md);
+    if(c.p1.on && $('#pz1')){ const s=$('#pz1').value.toUpperCase().replace(/[^ABCD]/g,''); a.p1=s.split('').slice(0,c.p1.soCau); }
+    if(c.p2.on && $('#pz2')){ a.p2=$('#pz2').value.toUpperCase().replace(/Đ/g,'Đ').split(/[\s,]+/).filter(Boolean).slice(0,c.p2.soCau); }
+    if(c.p3.on && $('#pz3')){ a.p3=$('#pz3').value.split(/[\s;]+/).map(x=>x.trim()).filter(Boolean).slice(0,c.p3.soCau); }
+    closeOverlay(); renderAnswers();
+  };
+}
+
+async function saveAnswers(){
+  collectVisible();
+  try{ await apiCall('saveDapAn',{maBai:EX.bai.maBai, dapAn:EX.ans}); toast('Đã lưu đáp án'); }
+  catch(e){ toast(e.message, true); }
+}
+async function genFile(){
+  collectVisible();
+  try{
+    await apiCall('saveDapAn',{maBai:EX.bai.maBai, dapAn:EX.ans});
+    const r = await apiCall('genDapAnFile',{maBai:EX.bai.maBai});
+    showFileLink(r); toast('Đã sinh file đáp án');
+  }catch(e){ toast(e.message, true); }
+}
+function showFileLink(f){
+  $('#ansFileLink').innerHTML = `<a class="link" href="${f.downloadUrl}" target="_blank">Tải file đáp án</a> · <a class="link" href="${f.viewUrl}" target="_blank">Mở trên Drive</a>`;
+}
+async function openBai(maBai){ startConfig(maBai); }
 
 /* ---------- Lớp phủ dùng chung ---------- */
 function overlay(html, noClose){
