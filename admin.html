@@ -795,11 +795,12 @@ function renderBaiHub(b, info){
 
     <div class="card hubcard">
       <h3>3. Điểm</h3>
-      <p class="muted" style="margin:4px 0 10px">${b.soKetQua ? ('Đã có <b>'+b.soKetQua+'</b> kết quả'+(b.trangThai==='Đã công bố'?' · <b style="color:var(--ok)">đã công bố</b>':' · chưa công bố')+'.') : 'Chưa nhập điểm.'} Chấm bằng TNMaker rồi chọn file điểm xuất ra (.xls); web đối chiếu với danh sách lớp và báo các SBD bị lỗi trước khi ghi.</p>
+      <p class="muted" style="margin:4px 0 10px">${b.soKetQua ? ('Đã có <b>'+b.soKetQua+'</b> kết quả'+(b.trangThai==='Đã công bố'?' · <b style="color:var(--ok)">đã công bố</b>':' · chưa công bố')+'.') : 'Chưa nhập điểm.'}${b.soChoXuLy ? ' <b style="color:var(--warn)">'+b.soChoXuLy+' dòng điểm đang chờ xử lý.</b>' : ''} Chấm bằng TNMaker rồi chọn file điểm xuất ra (.xls); web đối chiếu với danh sách lớp và báo các SBD bị lỗi trước khi ghi.</p>
       <div class="toolbar" style="margin:0">
         <button class="btn btn-primary btn-sm" id="scorePick">Nhập file điểm TNMaker…</button>
         <input type="file" id="scoreIn" accept=".xls,.xlsx,.csv" class="hidden">
-        ${b.soKetQua ? '<button class="btn btn-sm" id="hubResults">Xem kết quả</button>' : ''}
+        ${(b.soKetQua||b.soChoXuLy) ? '<button class="btn btn-sm" id="hubResults">Xem kết quả</button>' : ''}
+        ${b.soChoXuLy ? '<button class="btn btn-sm" id="hubPend" style="border-color:var(--warn);color:var(--warn)">Xử lý dòng chờ ('+b.soChoXuLy+')</button>' : ''}
       </div>
     </div>`;
   $('#hubBack').onclick = renderBaiList;
@@ -814,6 +815,7 @@ function renderBaiHub(b, info){
   $('#scorePick').onclick = ()=> $('#scoreIn').click();
   $('#scoreIn').onchange = e=>{ const f = (e.target.files||[])[0]; e.target.value=''; if(f) openScoreImport(f, b); };
   if($('#hubResults')) $('#hubResults').onclick = ()=> openResults(b.maBai);
+  if($('#hubPend')) $('#hubPend').onclick = ()=> openResults(b.maBai, '#');
 }
 
 /* >>> UPLOAD-QUEUE */
@@ -1193,8 +1195,9 @@ function initDecisions(imp){
   imp.pv.rows.forEach(r=>{
     const codes = r.issues.map(x=>x.code);
     let d = {a:'keep'};
-    if(codes.includes('KHONG_CO_SBD') || codes.includes('TRUNG_DS')) d = {a:'skip'};
+    if(codes.includes('KHONG_CO_SBD') || codes.includes('TRUNG_DS')) d = {a:'defer'};
     else if(codes.includes('DA_SUA_TAY')) d = {a:'skip'};
+    else if(codes.includes('DA_GAN') && r.daGan) d = {a:'assign', to:r.daGan};      // lần trước đã gán rồi: giữ nguyên cách gán
     else if(codes.includes('DA_CHUYEN') && r.goiY) d = {a:'assign', to:r.goiY};
     if(codes.includes('TRUNG_FILE')){
       if(first[r.sbd] !== undefined) d = {a:'skip'}; else first[r.sbd] = r.i;
@@ -1208,12 +1211,15 @@ function parseDec(v){ return v.indexOf('assign:')===0 ? {a:'assign', to:v.slice(
 function decOptions(r){
   const pv = EX.imp.pv, codes = r.issues.map(x=>x.code), opts = [];
   const sua = codes.includes('DA_SUA_TAY');
-  if(!codes.includes('KHONG_CO_SBD') && !codes.includes('TRUNG_DS')) opts.push(['keep', sua ? 'Ghi đè bằng điểm trong file' : 'Ghi như trong file']);
-  opts.push(['skip', sua ? 'Giữ bản đã sửa tay' : 'Bỏ qua dòng này']);
+  const loi = codes.includes('KHONG_CO_SBD') || codes.includes('TRUNG_DS');
+  if(!loi) opts.push(['keep', sua ? 'Ghi đè bằng điểm trong file' : 'Ghi như trong file']);
+  if(!sua) opts.push(['defer', 'Để xử lý sau (giữ lại trong mục "Chờ xử lý")']);
+  if(r.daGan) opts.push(['assign:'+r.daGan, 'Gán lại cho SBD '+r.daGan+' như lần trước']);
   const pfx = r.sbd.slice(0,3);
   const cand = pv.absent.filter(a=>a.sbd.slice(0,3)===pfx);
   if(r.goiY && !cand.find(a=>a.sbd===r.goiY)) opts.push(['assign:'+r.goiY, 'Gán sang SBD mới '+r.goiY]);
   cand.forEach(a=> opts.push(['assign:'+a.sbd, 'Gán cho '+a.sbd+' · '+((a.ho||'')+' '+(a.ten||'')).trim()]));
+  opts.push(['skip', sua ? 'Giữ bản đã sửa tay' : 'Bỏ hẳn dòng này (không lưu)']);
   return opts;
 }
 
@@ -1221,8 +1227,18 @@ function finalRows(){
   const imp = EX.imp, out = [];
   imp.pv.rows.forEach(r=>{
     const d = imp.dec[r.i] || {a:'keep'};
-    if(d.a === 'skip') return;
-    out.push(Object.assign({}, imp.parsed.rows[r.i], {sbd: d.a==='assign' ? d.to : r.sbd}));
+    if(d.a === 'skip' || d.a === 'defer') return;      // bỏ hẳn hoặc để chờ: không ghi vào bảng điểm
+    out.push(Object.assign({}, imp.parsed.rows[r.i], {sbd: d.a==='assign' ? d.to : r.sbd, srcSbd: r.sbd}));
+  });
+  return out;
+}
+// Các dòng chưa quyết được: gửi lên để GIỮ LẠI trong mục "Chờ xử lý"
+function deferredRows(){
+  const imp = EX.imp, out = [];
+  imp.pv.rows.forEach(r=>{
+    if((imp.dec[r.i]||{}).a !== 'defer') return;
+    const first = r.issues[0] || {};
+    out.push(Object.assign({}, imp.parsed.rows[r.i], {lyDo: first.code||'', ghiChu: first.msg||''}));
   });
   return out;
 }
@@ -1258,12 +1274,14 @@ function renderReconcile(){
     <div class="card" style="padding:16px;max-width:900px">
       <p style="margin:0 0 6px;font-size:14px">File <b>${esc(imp.file)}</b>: đọc được <b>${pv.rows.length}</b> dòng điểm (mã đề ${esc(maDes)}). Khớp danh sách, không có vấn đề: <b>${pv.rows.length-bad.length}</b>. Cần xem: <b style="color:${bad.length?'var(--warn)':'var(--ok)'}">${bad.length}</b>.</p>
       ${(dc.khop+dc.lech)? `<p style="margin:0 0 6px;font-size:14px">Web chấm lại từ câu trả lời trong file: <b>${dc.khop}/${dc.khop+dc.lech}</b> khớp điểm TNMaker${dc.lech?', <b style="color:var(--warn)">'+dc.lech+' lệch</b>':''}.</p>` : ''}
+      ${bad.length ? '<p class="muted" style="margin:0 0 8px;font-size:13px">Dòng nào chưa quyết được (ví dụ em mới học chưa kịp thêm vào danh sách) cứ để <b>"Để xử lý sau"</b>: web giữ lại điểm trong mục <b>Chờ xử lý</b> của bài. Thêm em vào danh sách lớp xong thì bấm <b>Ghép lại tự động</b>.</p>' : ''}
+      ${pv.choXuLy ? '<div class="notice">Bài này đang có <b>'+pv.choXuLy+'</b> dòng chờ xử lý từ các lần nhập trước. Dòng nào có SBD trùng với file này sẽ được thay theo lựa chọn bên dưới, dòng còn lại giữ nguyên.</div>' : ''}
       ${warns.length ? '<div class="notice">'+warns.map(w=>'<div>• '+w+'</div>').join('')+'</div>' : ''}
       ${bad.length ? `<div style="overflow:auto"><table><thead><tr><th>SBD · Họ tên</th><th>Mã đề</th><th>Điểm</th><th>Vấn đề</th><th style="min-width:200px">Cách xử lý</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p style="color:var(--ok);font-size:14px">Không có dòng nào cần xử lý.</p>'}
       ${absentHtml}${modeHtml}
       <div class="toolbar" style="margin-top:12px"><button class="btn btn-primary" id="impGo">Ghi điểm</button><span class="muted" id="impCount"></span></div>
     </div>`;
-  const upd = ()=>{ const n = finalRows().length; $('#impCount').textContent = 'Sẽ ghi '+n+' / '+pv.rows.length+' dòng'; };
+  const upd = ()=>{ const n = finalRows().length, d = deferredRows().length; $('#impCount').textContent = 'Sẽ ghi '+n+' dòng · để xử lý sau '+d+' dòng · bỏ hẳn '+(pv.rows.length-n-d)+' dòng'; };
   document.querySelectorAll('.impDec').forEach(s=> s.onchange = ()=>{ imp.dec[+s.dataset.i] = parseDec(s.value); upd(); });
   $('#impCancel').onclick = ()=>{ EX.imp = null; openBai(imp.b.maBai); };
   $('#impGo').onclick = doCommit;
@@ -1271,27 +1289,31 @@ function renderReconcile(){
 }
 
 async function doCommit(){
-  const imp = EX.imp, rows = finalRows();
+  const imp = EX.imp, rows = finalRows(), deferred = deferredRows();
   const dup = dupSbd(rows);
   if(dup.length){ toast('SBD '+dup.join(', ')+' bị trùng sau khi xử lý. Hãy chọn "Bỏ qua" cho một trong các dòng.', true); return; }
   const mode = (document.querySelector('input[name=impMode]:checked')||{}).value || 'merge';
-  if(!rows.length && mode !== 'replace'){ toast('Không có dòng nào để ghi', true); return; }
+  if(!rows.length && !deferred.length && mode !== 'replace'){ toast('Không có dòng nào để ghi hoặc giữ lại', true); return; }
   if(mode === 'replace' && !confirm('Xóa hết kết quả cũ của bài (kể cả bản sửa tay) rồi ghi lại từ file?')) return;
   const g = $('#impGo'); g.disabled = true; g.textContent = 'Đang ghi…';
   try{
-    const r = await apiCall('commitDiem', {maBai:imp.b.maBai, rows, keys:imp.parsed.keys, mode, tenFile:imp.file});
-    toast('Đã ghi '+r.soDong+' kết quả');
+    const r = await apiCall('commitDiem', {maBai:imp.b.maBai, rows, deferred, purge:imp.pv.rows.map(x=>x.sbd), keys:imp.parsed.keys, mode, tenFile:imp.file});
+    toast('Đã ghi '+r.soDong+' kết quả'+(r.soChoXuLy ? ' · '+r.soChoXuLy+' dòng chờ xử lý' : ''));
     EX.imp = null;
     openResults(imp.b.maBai);
   }catch(e){ toast(e.message, true); const x = $('#impGo'); if(x){ x.disabled = false; x.textContent = 'Ghi điểm'; } }
 }
 
 /* ---------- Màn kết quả ---------- */
-async function openResults(maBai){
+async function openResults(maBai, tab){
   $('#examsScreen').innerHTML = '<p class="muted">Đang tải kết quả…</p>';
   try{
     const data = await apiCall('getKetQua', {maBai});
-    EX.res = {data, tab: data.groups.length ? data.groups[0].maNhom : '*'};
+    const cx = (data.choXuLy||[]).length;
+    let t = tab;
+    if(t === '#' && !cx) t = null;                                   // hết dòng chờ thì về nhóm đầu
+    if(!t) t = data.groups.length ? data.groups[0].maNhom : (cx ? '#' : '*');
+    EX.res = {data, tab: t};
     renderResults();
   }catch(e){
     handleErr(e);
@@ -1304,12 +1326,15 @@ function avgTong(list){ const v = list.filter(s=>s.kq).map(s=>s.kq.tong); return
 function renderResults(){
   const data = EX.res.data, b = data.bai, tab = EX.res.tab;
   const pub = b.trangThai === 'Đã công bố';
-  const nav = data.groups.map(g=>{
+  const cxN = (data.choXuLy||[]).length;
+  const cxTab = cxN ? `<button class="group ${tab==='#'?'active':''}" data-t="#" style="border-color:var(--warn)"><span class="n" style="color:var(--warn)">Chờ xử lý (${cxN})</span><span class="c">dòng điểm chưa gán cho ai</span></button>` : '';
+  const nav = cxTab + data.groups.map(g=>{
     const n = g.students.filter(s=>s.kq).length, a = avgTong(g.students);
     return `<button class="group ${tab===g.maNhom?'active':''}" data-t="${esc(g.maNhom)}"><span class="n">${esc(g.tenNhom)}</span><span class="c">${n}/${g.students.length} có điểm${a!==null?' · TB '+a:''}</span></button>`;
   }).join('') + (data.orphan.length ? `<button class="group ${tab==='*'?'active':''}" data-t="*"><span class="n">Khác</span><span class="c">${data.orphan.length} kết quả không còn trong danh sách</span></button>` : '');
   let list = [];
-  if(tab === '*') list = data.orphan.map(o=>({sbd:o.sbd, ho:'', ten:'(không còn trong danh sách)', kq:o.kq}));
+  if(tab === '#') list = [];
+  else if(tab === '*') list = data.orphan.map(o=>({sbd:o.sbd, ho:'', ten:'(không còn trong danh sách)', kq:o.kq}));
   else { const g = data.groups.find(x=>x.maNhom===tab); if(g) list = g.students; }
   const rows = list.map((s,i)=>{
     const k = s.kq;
@@ -1331,16 +1356,65 @@ function renderResults(){
       <button class="btn btn-sm ${pub?'':'btn-primary'}" id="resPub">${pub?'Ẩn điểm':'Công bố điểm'}</button></div>
     <div class="panel-title">${esc(b.tenBai)} <span class="muted" style="font-weight:400">· ${esc(b.ngay||'')}</span> <span class="pill ${pub?'ok':'wait'}">${pub?'Đã công bố':'Chưa công bố'}</span></div>
     <div class="nav">${nav}</div>
-    <div style="overflow:auto"><table><thead><tr><th>#</th><th>Họ</th><th>Tên</th><th>SBD</th><th>Mã đề</th><th>Điểm</th><th>P1</th><th>P2</th><th>P3</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="10" class="muted">Không có học sinh.</td></tr>'}</tbody></table></div>`;
+    ${(cxN && tab !== '#') ? `<div class="notice">Còn <b>${cxN}</b> dòng điểm chưa gán cho học sinh nào (chưa tính vào bảng dưới). <button class="btn btn-sm" id="goPend">Xử lý ngay</button></div>` : ''}
+    ${tab === '#' ? pendingHtml(data) : `<div style="overflow:auto"><table><thead><tr><th>#</th><th>Họ</th><th>Tên</th><th>SBD</th><th>Mã đề</th><th>Điểm</th><th>P1</th><th>P2</th><th>P3</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="10" class="muted">Không có học sinh.</td></tr>'}</tbody></table></div>`}`;
   document.querySelectorAll('#examsScreen .nav .group').forEach(x=> x.onclick = ()=>{ EX.res.tab = x.dataset.t; renderResults(); });
   document.querySelectorAll('#examsScreen [data-edit]').forEach(x=> x.onclick = ()=>{
     const sbd = x.closest('tr').dataset.sbd; const s = list.find(y=>y.sbd===sbd); if(s) openEditor(s);
   });
+  if($('#goPend')) $('#goPend').onclick = ()=>{ EX.res.tab = '#'; renderResults(); };
+  if(tab === '#') bindPending(b.maBai);
   $('#resBack').onclick = ()=> openBai(b.maBai);
   $('#resHist').onclick = ()=> openHistory(b.maBai);
   $('#resRe').onclick = ()=> openBai(b.maBai);
   $('#resXls').onclick = exportExcel;
   $('#resPub').onclick = togglePublish;
+}
+
+function pendingHtml(data){
+  const cand = [];
+  data.groups.forEach(g=> g.students.forEach(s=>{ if(!s.kq && s.trangThai === 'Đang học') cand.push({sbd:s.sbd, label:s.sbd+' · '+((s.ho||'')+' '+(s.ten||'')).trim()+' ('+g.tenNhom+')'}); }));
+  const rows = data.choXuLy.map(c=>{
+    const m = c.match;
+    let hint = '<div>'+esc(c.ghiChu||'')+'</div>';
+    if(m) hint += '<div style="color:var(--ok)">Hiện SBD này đã có trong danh sách: <b>'+esc(((m.ho||'')+' '+(m.ten||'')).trim())+'</b>'+(m.coKetQua?' (đã có kết quả bài này)':'')+(m.trangThai!=='Đang học'?' ('+esc(m.trangThai)+')':'')+'</div>';
+    if(c.trungDS) hint += '<div style="color:var(--danger)">SBD vẫn đang dùng cho '+c.trungDS+' học sinh: sửa danh sách lớp trước.</div>';
+    const list = cand.slice();
+    const gan = m && !m.coKetQua;
+    if(gan && !list.find(x=>x.sbd===c.sbd)) list.unshift({sbd:c.sbd, label:c.sbd+' · '+((m.ho||'')+' '+(m.ten||'')).trim()});
+    const opts = '<option value="">— chọn em để gán —</option>' + list.map(x=>`<option value="${esc(x.sbd)}" ${(gan && x.sbd===c.sbd)?'selected':''}>${esc(x.label)}</option>`).join('');
+    return `<tr data-id="${esc(c.id)}"><td class="sbd">${esc(c.sbd||'(trống)')}</td><td>${esc(c.maDe)}</td>
+      <td class="num"><b>${fmtNum(c.tong)}</b><br><span class="muted" style="font-size:12px">${fmtNum(c.p1)} · ${fmtNum(c.p2)} · ${fmtNum(c.p3)}</span></td>
+      <td style="font-size:13px">${hint}</td>
+      <td><select class="cxSel" style="width:100%;min-width:190px;padding:6px;border:1px solid var(--line);border-radius:6px">${opts}</select></td>
+      <td class="act"><button class="btn btn-sm btn-primary" data-cx="assign">Gán</button> <button class="btn btn-sm btn-danger" data-cx="discard">Bỏ</button></td></tr>`;
+  }).join('');
+  return `<div class="card" style="padding:14px;margin-bottom:10px;max-width:900px">
+      <p style="margin:0 0 8px;font-size:14px">Đây là các dòng điểm trong file TNMaker <b>chưa gán được cho học sinh nào</b>. Điểm và câu trả lời của chúng được giữ nguyên ở đây, chưa tính vào bảng điểm. Thêm em vào danh sách lớp hoặc sửa SBD trong danh sách xong, bấm <b>Ghép lại tự động</b>; hoặc <b>Gán</b> tay cho một em.</p>
+      <button class="btn btn-primary btn-sm" id="cxAuto">Ghép lại tự động</button>
+      <span class="muted" style="font-size:12px;margin-left:6px">chỉ ghép dòng nào có SBD đã khớp đúng một học sinh đang học và em đó chưa có điểm</span></div>
+    <div style="overflow:auto"><table><thead><tr><th>SBD trong file</th><th>Mã đề</th><th>Điểm (P1·P2·P3)</th><th>Vì sao chưa gán được</th><th style="min-width:200px">Gán cho</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+function bindPending(maBai){
+  const run = async (payload, okMsg)=>{
+    try{
+      const r = await apiCall('giaiQuyetChoXuLy', Object.assign({maBai}, payload));
+      if(r.errors && r.errors.length) toast(r.errors.map(e=>e.msg).join('; '), true); else toast(okMsg(r));
+      openResults(maBai, '#');
+    }catch(e){ handleErr(e); }
+  };
+  $('#cxAuto').onclick = ()=> run({auto:true}, r=> r.resolved ? ('Đã ghép '+r.resolved+' dòng'+(r.conLai?', còn '+r.conLai+' dòng cần xử lý tay':'')) : 'Chưa có dòng nào ghép được. Hãy thêm em vào danh sách lớp hoặc sửa SBD trước.');
+  document.querySelectorAll('[data-cx]').forEach(btn=> btn.onclick = ()=>{
+    const tr = btn.closest('tr'), id = tr.dataset.id;
+    if(btn.dataset.cx === 'discard'){
+      if(!confirm('Bỏ hẳn dòng điểm này? Điểm và câu trả lời của dòng sẽ bị xóa khỏi hệ thống.')) return;
+      run({items:[{id, action:'discard'}]}, ()=>'Đã bỏ dòng này');
+    } else {
+      const to = tr.querySelector('.cxSel').value;
+      if(!to){ toast('Chọn em cần gán', true); return; }
+      run({items:[{id, action:'assign', to}]}, ()=>'Đã gán điểm');
+    }
+  });
 }
 
 async function togglePublish(){
@@ -1356,6 +1430,8 @@ async function togglePublish(){
 
 function exportExcel(){
   if(typeof XLSX === 'undefined'){ toast('Chưa tải được thư viện Excel. Kiểm tra mạng rồi tải lại trang.', true); return; }
+  const cx = (EX.res.data.choXuLy||[]).length;
+  if(cx && !confirm('Còn '+cx+' dòng điểm chờ xử lý, chưa có trong file Excel. Vẫn xuất?')) return;
   try{
     const wb = buildExportWorkbook(XLSX, EX.res.data);
     const nm = String(EX.res.data.bai.tenBai||'bai').replace(/[\\\/:*?"<>|]/g,'-').trim();
