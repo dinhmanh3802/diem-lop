@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Quản lý lớp — Vật lý mẹ Cường</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#eef1f4; --surface:#ffffff; --ink:#18212b; --muted:#5d6b78;
+    --line:#e2e7ec; --primary:#0b5fff; --primary-dark:#0847c4;
+    --ok:#15803d; --warn:#b45309; --danger:#b42318;
+    --radius:10px;
+    font-family:'Be Vietnam Pro',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-size:15px;line-height:1.5;
+    padding-top:env(safe-area-inset-top,0);padding-bottom:env(safe-area-inset-bottom,0)}
+  h1,h2,h3{margin:0;font-weight:600}
+  button{font-family:inherit;cursor:pointer}
+  input,select{font-family:inherit;font-size:14px}
+  .hidden{display:none !important}
+
+  /* Nút */
+  .btn{border:1px solid var(--line);background:var(--surface);color:var(--ink);
+    padding:8px 14px;border-radius:8px;font-size:14px;font-weight:500}
+  .btn:hover{border-color:#c6cfd8}
+  .btn-primary{background:var(--primary);border-color:var(--primary);color:#fff}
+  .btn-primary:hover{background:var(--primary-dark);border-color:var(--primary-dark)}
+  .btn-sm{padding:5px 10px;font-size:13px}
+  .btn-ghost{background:transparent;border-color:transparent;color:var(--muted)}
+  .btn-ghost:hover{color:var(--ink)}
+  .btn-danger{color:var(--danger);border-color:#f0cfcb}
+  .link{color:var(--primary);background:none;border:none;padding:0;font-size:14px}
+
+  /* Đăng nhập */
+  #loginView{min-height:100dvh;display:grid;place-items:center;padding:20px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
+  .login-card{width:100%;max-width:360px;padding:28px}
+  .login-card h1{font-size:20px;margin-bottom:4px}
+  .login-card p.sub{color:var(--muted);font-size:14px;margin:0 0 20px}
+  .field{margin-bottom:14px}
+  .field label{display:block;font-size:13px;color:var(--muted);margin-bottom:5px}
+  .field input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;outline:none}
+  .field input:focus{border-color:var(--primary)}
+
+  /* Khung ứng dụng */
+  header.app{position:sticky;top:0;z-index:10;background:var(--surface);border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:12px;padding:12px 18px;padding-top:calc(12px + env(safe-area-inset-top,0))}
+  header.app .title{font-size:16px;font-weight:600}
+  header.app .spacer{flex:1}
+  header.app .who{font-size:13px;color:var(--muted);text-align:right}
+  .wrap{max-width:1000px;margin:0 auto;padding:18px}
+  .nav{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+  .nav .group{display:flex;flex-direction:column;align-items:flex-start;gap:2px;
+    padding:8px 12px;border:1px solid var(--line);background:var(--surface);border-radius:8px}
+  .nav .group .n{font-weight:600;font-size:14px}
+  .nav .group .c{font-size:12px;color:var(--muted)}
+  .nav .group.active{border-color:var(--primary);box-shadow:inset 0 0 0 1px var(--primary)}
+
+  .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+  .toolbar .spacer{flex:1}
+  .panel-title{font-size:15px;font-weight:600;margin-bottom:10px}
+
+  table{width:100%;border-collapse:collapse;background:var(--surface);
+    border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);font-size:14px;vertical-align:middle}
+  th{background:#f6f8fa;font-weight:600;color:var(--muted);font-size:12px}
+  tr:last-child td{border-bottom:none}
+  td input,td select{width:100%;padding:6px 8px;border:1px solid transparent;border-radius:6px;background:transparent}
+  td input:hover,td select:hover{border-color:var(--line)}
+  td input:focus,td select:focus{border-color:var(--primary);background:#fff;outline:none}
+  td.sbd{font-variant-numeric:tabular-nums;color:var(--muted);white-space:nowrap}
+  td.act{white-space:nowrap;text-align:right}
+  .pill{font-size:12px;padding:2px 8px;border-radius:999px;white-space:nowrap}
+  .pill.nghi{background:#fdeceb;color:var(--danger)}
+  .pill.chuyen{background:#fff4e5;color:var(--warn)}
+  tr.inactive td.sbd, tr.inactive td input{color:#9aa6b1}
+
+  /* Lớp phủ */
+  .overlay{position:fixed;inset:0;background:rgba(20,28,38,.45);display:grid;place-items:center;z-index:50;padding:16px}
+  .modal{width:100%;max-width:440px;padding:22px;max-height:85dvh;overflow:auto}
+  .modal h2{font-size:17px;margin-bottom:14px}
+  .modal .row{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
+
+  /* Toast */
+  #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:100;
+    background:#18212b;color:#fff;padding:10px 16px;border-radius:8px;font-size:14px;opacity:0;
+    transition:opacity .2s, transform .2s;pointer-events:none;max-width:90vw}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(-4px)}
+  #toast.err{background:var(--danger)}
+
+  .notice{background:#fff7e6;border:1px solid #f3d99b;color:#8a5a00;padding:12px 14px;border-radius:8px;margin-bottom:16px;font-size:14px}
+  .muted{color:var(--muted)}
+  .issue{display:flex;gap:8px;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}
+  .issue:last-child{border-bottom:none}
+  .issue .t{font-weight:600;min-width:150px}
+
+  @media(max-width:600px){
+    td.lop-col,th.lop-col{display:none}
+    .wrap{padding:12px}
+  }
+</style>
+</head>
+<body>
+
+<!-- ĐĂNG NHẬP -->
+<div id="loginView" class="hidden">
+  <div class="card login-card">
+    <h1>Quản lý lớp</h1>
+    <p class="sub">Vật lý mẹ Cường</p>
+    <div id="configWarn" class="notice hidden">Chưa cấu hình URL máy chủ trong <code>config.js</code>.</div>
+    <div class="field">
+      <label for="u">Tài khoản</label>
+      <input id="u" autocomplete="username" autocapitalize="off">
+    </div>
+    <div class="field">
+      <label for="p">Mật khẩu</label>
+      <input id="p" type="password" autocomplete="current-password">
+    </div>
+    <button id="loginBtn" class="btn btn-primary" style="width:100%">Đăng nhập</button>
+  </div>
+</div>
+
+<!-- ỨNG DỤNG -->
+<div id="appView" class="hidden">
+  <header class="app">
+    <span class="title">Quản lý lớp</span>
+    <span class="spacer"></span>
+    <span class="who" id="whoami"></span>
+    <button class="btn btn-sm" id="pwBtn">Đổi mật khẩu</button>
+    <button class="btn btn-sm" id="logoutBtn">Thoát</button>
+  </header>
+  <div class="wrap">
+    <div class="toolbar">
+      <button class="btn btn-sm" id="usersBtn">Tài khoản</button>
+      <button class="btn btn-sm" id="validateBtn">Kiểm tra danh sách</button>
+      <span class="spacer"></span>
+      <button class="btn btn-sm" id="reloadBtn">Tải lại</button>
+    </div>
+
+    <!-- Màn nhóm/học sinh -->
+    <div id="rosterScreen">
+      <div class="nav" id="groupNav"></div>
+      <div id="studentsArea"></div>
+    </div>
+
+    <!-- Màn tài khoản (admin) -->
+    <div id="usersScreen" class="hidden"></div>
+  </div>
+</div>
+
+<div id="overlayRoot"></div>
+<div id="toast"></div>
+
+<script src="config.js"></script>
+<script src="api.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+let GROUPS = [], CUR = null, USER = null;
+
+function toast(msg, isErr){
+  const t = $('#toast'); t.textContent = msg; t.className = 'show' + (isErr?' err':'');
+  setTimeout(()=>{ t.className = isErr?'err':''; }, isErr?3500:2000);
+}
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+/* ---------- Khởi động ---------- */
+function init(){
+  if(!window.APP_CONFIG || !window.APP_CONFIG.API_URL || window.APP_CONFIG.API_URL.indexOf('http')!==0){
+    $('#loginView').classList.remove('hidden'); $('#configWarn').classList.remove('hidden'); return;
+  }
+  USER = getUser();
+  if(USER && localStorage.getItem('token')) showApp();
+  else showLogin();
+}
+function showLogin(){ $('#appView').classList.add('hidden'); $('#loginView').classList.remove('hidden'); $('#u').focus(); }
+async function showApp(){
+  $('#loginView').classList.add('hidden'); $('#appView').classList.remove('hidden');
+  $('#whoami').textContent = USER.fullName + ' · ' + (USER.role==='admin'?'Quản trị':'Giáo viên');
+  $('#usersBtn').classList.toggle('hidden', USER.role!=='admin');
+  openRoster();
+  await loadGroups();
+}
+
+/* ---------- Đăng nhập ---------- */
+$('#loginBtn').onclick = async ()=>{
+  const username = $('#u').value.trim(), password = $('#p').value;
+  if(!username || !password){ toast('Nhập tài khoản và mật khẩu', true); return; }
+  $('#loginBtn').disabled = true;
+  try{
+    const r = await apiCall('login', {username, password});
+    setSession(r.token, r.user); USER = r.user;
+    if(r.user.mustChange){ await showApp(); openChangePw(true); }
+    else await showApp();
+  }catch(e){ toast(e.message, true); }
+  finally{ $('#loginBtn').disabled = false; }
+};
+$('#p').addEventListener('keydown', e=>{ if(e.key==='Enter') $('#loginBtn').click(); });
+
+$('#logoutBtn').onclick = async ()=>{
+  try{ await apiCall('logout'); }catch(e){}
+  clearSession(); USER=null; GROUPS=[]; CUR=null; showLogin();
+};
+
+/* ---------- Nhóm & học sinh ---------- */
+function openRoster(){ $('#rosterScreen').classList.remove('hidden'); $('#usersScreen').classList.add('hidden'); }
+$('#reloadBtn').onclick = ()=>{ if($('#usersScreen').classList.contains('hidden')){ loadGroups(); } else { openUsers(); } };
+
+async function loadGroups(){
+  $('#groupNav').innerHTML = '<span class="muted">Đang tải nhóm…</span>';
+  try{
+    const r = await apiCall('listGroups');
+    GROUPS = r.groups;
+    renderGroupNav();
+    if(GROUPS.length){ if(!CUR || !GROUPS.find(g=>g.maNhom===CUR)) CUR = GROUPS[0].maNhom; selectGroup(CUR); }
+    else $('#studentsArea').innerHTML = '<p class="muted">Chưa có nhóm nào.</p>';
+  }catch(e){ handleErr(e); }
+}
+function renderGroupNav(){
+  $('#groupNav').innerHTML = GROUPS.map(g=>`
+    <button class="group ${g.maNhom===CUR?'active':''}" data-m="${g.maNhom}">
+      <span class="n">${esc(g.tenNhom)}</span>
+      <span class="c">${g.active} đang học · ${g.total} tổng · ${g.maNhom}</span>
+    </button>`).join('');
+  document.querySelectorAll('#groupNav .group').forEach(b=> b.onclick = ()=>{ CUR=b.dataset.m; renderGroupNav(); selectGroup(CUR); });
+}
+
+async function selectGroup(maNhom){
+  $('#studentsArea').innerHTML = '<p class="muted">Đang tải học sinh…</p>';
+  try{
+    const r = await apiCall('listStudents', {maNhom});
+    renderStudents(r);
+  }catch(e){ handleErr(e); }
+}
+
+function renderStudents(data){
+  const rows = data.students.map(s=>{
+    const inactive = s.trangThai!=='Đang học';
+    let pill = '';
+    if(s.trangThai==='Đã nghỉ') pill = '<span class="pill nghi">Đã nghỉ</span>';
+    else if(s.trangThai==='Đã chuyển') pill = '<span class="pill chuyen">Đã chuyển</span>';
+    return `<tr class="${inactive?'inactive':''}" data-sbd="${s.sbd}">
+      <td class="sbd">${esc(s.sbd)}${s.sbdCu?'<br><span class="muted" style="font-size:11px">cũ: '+esc(s.sbdCu)+'</span>':''}</td>
+      <td><input class="f-ho" value="${esc(s.ho)}"></td>
+      <td><input class="f-ten" value="${esc(s.ten)}"></td>
+      <td class="lop-col"><input class="f-lop" value="${esc(s.lop)}" style="max-width:70px"></td>
+      <td>
+        <select class="f-status">
+          <option ${s.trangThai==='Đang học'?'selected':''}>Đang học</option>
+          <option ${s.trangThai==='Đã nghỉ'?'selected':''}>Đã nghỉ</option>
+          ${s.trangThai==='Đã chuyển'?'<option selected>Đã chuyển</option>':''}
+        </select>
+      </td>
+      <td class="act">${pill}
+        <button class="btn btn-sm save">Lưu</button>
+        <button class="btn btn-sm transfer">Chuyển</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  $('#studentsArea').innerHTML = `
+    <div class="panel-title">${esc(data.tenNhom)} <span class="muted" style="font-weight:400">(${data.students.length} học sinh)</span></div>
+    <table>
+      <thead><tr><th>SBD</th><th>Họ</th><th>Tên</th><th class="lop-col">Lớp</th><th>Trạng thái</th><th></th></tr></thead>
+      <tbody id="stBody">${rows}</tbody>
+      <tfoot><tr class="addrow">
+        <td class="sbd muted">tự cấp</td>
+        <td><input id="new-ho" placeholder="Họ"></td>
+        <td><input id="new-ten" placeholder="Tên"></td>
+        <td class="lop-col"><input id="new-lop" placeholder="Lớp" style="max-width:70px"></td>
+        <td></td>
+        <td class="act"><button class="btn btn-sm btn-primary" id="addBtn">Thêm học sinh</button></td>
+      </tr></tfoot>
+    </table>`;
+
+  document.querySelectorAll('#stBody tr').forEach(tr=>{
+    const sbd = tr.dataset.sbd;
+    tr.querySelector('.save').onclick = ()=> saveStudent(tr, sbd);
+    tr.querySelector('.transfer').onclick = ()=> openTransfer(sbd, tr);
+    tr.querySelector('.f-status').onchange = (e)=> changeStatus(sbd, e.target.value);
+  });
+  $('#addBtn').onclick = addStudent;
+}
+
+async function saveStudent(tr, sbd){
+  const ho = tr.querySelector('.f-ho').value.trim();
+  const ten = tr.querySelector('.f-ten').value.trim();
+  const lop = tr.querySelector('.f-lop') ? tr.querySelector('.f-lop').value.trim() : '';
+  try{
+    await apiCall('upsertStudent', {maNhom:CUR, sbd, ho, ten, lop});
+    toast('Đã lưu ' + sbd);
+  }catch(e){ handleErr(e); }
+}
+async function changeStatus(sbd, trangThai){
+  try{ await apiCall('setStudentStatus', {maNhom:CUR, sbd, trangThai}); toast('Đã đổi trạng thái'); loadGroups(); selectGroup(CUR); }
+  catch(e){ handleErr(e); }
+}
+async function addStudent(){
+  const ho = $('#new-ho').value.trim(), ten = $('#new-ten').value.trim(), lop = ($('#new-lop')||{}).value || '';
+  if(!ho && !ten){ toast('Nhập họ tên', true); return; }
+  try{
+    const r = await apiCall('upsertStudent', {maNhom:CUR, ho, ten, lop:lop.trim()});
+    toast('Đã thêm, SBD ' + r.sbd);
+    loadGroups(); selectGroup(CUR);
+  }catch(e){ handleErr(e); }
+}
+
+/* ---------- Chuyển nhóm ---------- */
+function openTransfer(sbd){
+  const others = GROUPS.filter(g=>g.maNhom!==CUR);
+  if(!others.length){ toast('Không có nhóm khác để chuyển', true); return; }
+  const opts = others.map(g=>`<option value="${g.maNhom}">${esc(g.tenNhom)} (${g.maNhom})</option>`).join('');
+  overlay(`
+    <h2>Chuyển nhóm cho ${esc(sbd)}</h2>
+    <p class="muted" style="font-size:13px;margin:0 0 12px">Em sẽ được cấp SBD mới ở nhóm đến; SBD cũ được giữ làm lịch sử, dòng cũ chuyển sang "Đã chuyển".</p>
+    <div class="field"><label>Chuyển sang nhóm</label><select id="trTo" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px">${opts}</select></div>
+    <div class="row"><button class="btn" onclick="closeOverlay()">Hủy</button><button class="btn btn-primary" id="trGo">Chuyển</button></div>
+  `);
+  $('#trGo').onclick = async ()=>{
+    const toMaNhom = $('#trTo').value;
+    try{ const r = await apiCall('transferStudent', {fromMaNhom:CUR, sbd, toMaNhom}); closeOverlay(); toast('Đã chuyển, SBD mới ' + r.newSbd); loadGroups(); selectGroup(CUR); }
+    catch(e){ handleErr(e); }
+  };
+}
+
+/* ---------- Kiểm tra danh sách ---------- */
+$('#validateBtn').onclick = async ()=>{
+  overlay('<h2>Kiểm tra danh sách</h2><p class="muted">Đang kiểm tra…</p>');
+  try{
+    const r = await apiCall('validateRoster');
+    let body;
+    if(r.ok) body = '<p style="color:var(--ok)">Không phát hiện vấn đề.</p>';
+    else body = r.issues.map(i=>`<div class="issue"><span class="t">${esc(i.type)}</span><span>${esc(i.group)} — ${esc(i.detail)}</span></div>`).join('');
+    overlay(`<h2>Kiểm tra danh sách</h2><div>${body}</div><div class="row"><button class="btn" onclick="closeOverlay()">Đóng</button></div>`);
+  }catch(e){ closeOverlay(); handleErr(e); }
+};
+
+/* ---------- Đổi mật khẩu ---------- */
+$('#pwBtn').onclick = ()=> openChangePw(false);
+function openChangePw(forced){
+  overlay(`
+    <h2>Đổi mật khẩu</h2>
+    ${forced?'<p class="muted" style="font-size:13px;margin:0 0 12px">Đây là lần đăng nhập đầu, hãy đặt mật khẩu mới.</p>':''}
+    <div class="field"><label>Mật khẩu hiện tại</label><input id="oldPw" type="password" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px"></div>
+    <div class="field"><label>Mật khẩu mới (tối thiểu 6 ký tự)</label><input id="newPw" type="password" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px"></div>
+    <div class="row">${forced?'':'<button class="btn" onclick="closeOverlay()">Hủy</button>'}<button class="btn btn-primary" id="pwGo">Lưu</button></div>
+  `, forced);
+  $('#pwGo').onclick = async ()=>{
+    const oldPassword = $('#oldPw').value, newPassword = $('#newPw').value;
+    try{ await apiCall('changePassword', {oldPassword, newPassword}); closeOverlay(); toast('Đã đổi mật khẩu'); }
+    catch(e){ toast(e.message, true); }
+  };
+}
+
+/* ---------- Tài khoản (admin) ---------- */
+$('#usersBtn').onclick = openUsers;
+async function openUsers(){
+  $('#rosterScreen').classList.add('hidden'); $('#usersScreen').classList.remove('hidden');
+  $('#usersScreen').innerHTML = '<p class="muted">Đang tải…</p>';
+  try{
+    const r = await apiCall('listUsers');
+    const rows = r.users.map(u=>`<tr>
+      <td>${esc(u.username)}</td><td>${esc(u.fullName)}</td>
+      <td>${u.role==='admin'?'Quản trị':'Giáo viên'}</td>
+      <td>${u.active?'<span style="color:var(--ok)">Hoạt động</span>':'<span style="color:var(--danger)">Đã khóa</span>'}</td>
+      <td class="act">
+        <button class="btn btn-sm" data-act="reset" data-u="${esc(u.username)}">Đặt lại MK</button>
+        <button class="btn btn-sm" data-act="toggle" data-u="${esc(u.username)}" data-a="${u.active?0:1}">${u.active?'Khóa':'Mở'}</button>
+      </td></tr>`).join('');
+    $('#usersScreen').innerHTML = `
+      <div class="toolbar"><button class="btn btn-sm" id="backBtn">← Về danh sách lớp</button><span class="spacer"></span>
+        <button class="btn btn-sm btn-primary" id="newUserBtn">Thêm tài khoản</button></div>
+      <table><thead><tr><th>Tài khoản</th><th>Họ tên</th><th>Vai trò</th><th>Trạng thái</th><th></th></tr></thead>
+      <tbody>${rows}</tbody></table>`;
+    $('#backBtn').onclick = ()=>{ openRoster(); };
+    $('#newUserBtn').onclick = openNewUser;
+    document.querySelectorAll('#usersScreen [data-act]').forEach(b=> b.onclick = async ()=>{
+      try{
+        if(b.dataset.act==='reset'){ const r=await apiCall('resetPassword',{username:b.dataset.u}); toast('Mật khẩu tạm: '+r.tempPassword); }
+        else { await apiCall('setUserActive',{username:b.dataset.u, active:b.dataset.a==='1'}); openUsers(); }
+      }catch(e){ handleErr(e); }
+    });
+  }catch(e){ handleErr(e); }
+}
+function openNewUser(){
+  overlay(`
+    <h2>Thêm tài khoản</h2>
+    <div class="field"><label>Tài khoản (không dấu, không cách)</label><input id="nuU" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px"></div>
+    <div class="field"><label>Họ tên</label><input id="nuName" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px"></div>
+    <div class="field"><label>Vai trò</label><select id="nuRole" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px"><option value="teacher">Giáo viên</option><option value="admin">Quản trị</option></select></div>
+    <div class="field"><label>ID Sheet danh sách của giáo viên (để trống nếu dùng chung)</label><input id="nuRoster" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px"></div>
+    <div class="row"><button class="btn" onclick="closeOverlay()">Hủy</button><button class="btn btn-primary" id="nuGo">Tạo</button></div>
+  `);
+  $('#nuGo').onclick = async ()=>{
+    try{
+      const r = await apiCall('createUser',{username:$('#nuU').value.trim(), fullName:$('#nuName').value.trim(), role:$('#nuRole').value, rosterSheetId:$('#nuRoster').value.trim()});
+      closeOverlay(); toast('Đã tạo. Mật khẩu tạm: '+r.tempPassword); openUsers();
+    }catch(e){ toast(e.message, true); }
+  };
+}
+
+/* ---------- Lớp phủ dùng chung ---------- */
+function overlay(html, noClose){
+  $('#overlayRoot').innerHTML = `<div class="overlay" id="ov"><div class="card modal">${html}</div></div>`;
+  if(!noClose) $('#ov').onclick = e=>{ if(e.target.id==='ov') closeOverlay(); };
+}
+function closeOverlay(){ $('#overlayRoot').innerHTML=''; }
+
+function handleErr(e){
+  if(/Phiên đã hết hạn/.test(e.message)){ clearSession(); USER=null; showLogin(); }
+  toast(e.message, true);
+}
+
+init();
+</script>
+</body>
+</html>
