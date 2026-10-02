@@ -83,6 +83,7 @@
   .overlay{position:fixed;inset:0;background:rgba(20,28,38,.45);display:grid;place-items:center;z-index:50;padding:16px}
   .modal{width:100%;max-width:440px;padding:22px;max-height:85dvh;overflow:auto}
   .modal h2{font-size:17px;margin-bottom:14px}
+  .modal.wide{max-width:720px}
   .modal .row{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
 
   /* Toast */
@@ -168,6 +169,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
 <script>if(window.pdfjsLib){pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';}</script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="config.js"></script>
 <script src="api.js"></script>
 <script>
@@ -195,7 +197,6 @@ async function showApp(){
   $('#whoami').textContent = USER.fullName + ' · ' + (USER.role==='admin'?'Quản trị':'Giáo viên');
   $('#usersBtn').classList.toggle('hidden', USER.role!=='admin');
   $('#syncBtn').classList.toggle('hidden', USER.role==='admin');
-  $('#examsBtn').classList.toggle('hidden', USER.role==='admin');
   openRoster();
   await loadGroups();
 }
@@ -484,18 +485,19 @@ async function renderBaiList(){
     const r = await apiCall('listBai');
     const rows = r.bai.map(b=>`<tr>
       <td>${esc(b.tenBai)}</td><td class="muted">${esc(b.ngay||'')}</td>
-      <td>${b.cacNhom.map(esc).join(', ')}</td>
+      <td>${b.cacNhom.map(x=>esc(x)).join(', ')}</td>
+      ${USER.role==='admin' ? '<td>'+esc(b.teacher)+'</td>' : ''}
       <td>${b.soMaDe} mã</td>
-      <td>${esc(b.trangThai)}</td>
+      <td>${esc(displayStatus(b.trangThai))}</td>
       <td class="act"><button class="btn btn-sm" data-m="${esc(b.maBai)}" data-act="open">Mở</button></td>
-    </tr>`).join('') || '<tr><td colspan="6" class="muted">Chưa có bài nào.</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="7" class="muted">Chưa có bài nào.</td></tr>';
     $('#examsScreen').innerHTML = `
       <div class="toolbar"><button class="btn btn-sm" id="exBack">← Về danh sách lớp</button><span class="spacer"></span>
-        <button class="btn btn-sm btn-primary" id="exNew">Tạo bài mới</button></div>
-      <table><thead><tr><th>Tên bài</th><th>Ngày</th><th>Nhóm</th><th>Mã đề</th><th>Trạng thái</th><th></th></tr></thead>
+        ${USER.role==='admin' ? '' : '<button class="btn btn-sm btn-primary" id="exNew">Tạo bài mới</button>'}</div>
+      <table><thead><tr><th>Tên bài</th><th>Ngày</th><th>Nhóm</th>${USER.role==='admin' ? '<th>Giáo viên</th>' : ''}<th>Mã đề</th><th>Trạng thái</th><th></th></tr></thead>
       <tbody>${rows}</tbody></table>`;
     $('#exBack').onclick = openRoster;
-    $('#exNew').onclick = ()=> startConfig(null);
+    if($('#exNew')) $('#exNew').onclick = ()=> startConfig(null);
     document.querySelectorAll('#examsScreen [data-act="open"]').forEach(b=> b.onclick = ()=> openBai(b.dataset.m));
   }catch(e){ handleErr(e); }
 }
@@ -755,17 +757,13 @@ function renderBaiHub(b, info){
   EX = { bai:b, cfg:b.cauHinh, ans:b.dapAn||{}, curMaDe:null };
   const c = b.cauHinh;
   const parts = [c.p1.on?('Phần I: '+c.p1.soCau+' câu'):'', c.p2.on?('Phần II: '+c.p2.soCau+' câu'):'', c.p3.on?('Phần III: '+c.p3.soCau+' câu'):''].filter(Boolean).join(' · ');
-  const thieu = [];
-  if(!b.dapAnFile) thieu.push('file đáp án');
-  if(!info.count) thieu.push('ảnh phiếu');
-  const quaSan = !['Nháp','Chờ chấm','Sẵn sàng chấm'].includes(b.trangThai);
-  const badge = quaSan ? `<span class="pill ok">${esc(b.trangThai)}</span>`
-    : (thieu.length ? `<span class="pill wait">Còn thiếu: ${thieu.join(', ')}</span>` : '<span class="pill ok">Sẵn sàng chấm</span>');
+  const badge = `<span class="pill ${['Đã nhập điểm','Đã công bố'].includes(b.trangThai)?'ok':'wait'}">${esc(displayStatus(b.trangThai))}</span>`;
+  const chips = `<span class="muted" style="font-size:13px;margin-right:8px">Đáp án: ${b.dapAnFile?'có file':'chưa có file'} · Ảnh: ${info.count||'chưa có'}</span>`;
   const fileLink = b.dapAnFile
     ? `<a class="link" href="${esc(b.dapAnFile.downloadUrl)}" target="_blank">Tải file đáp án</a> · <a class="link" href="${esc(b.dapAnFile.viewUrl)}" target="_blank">Mở trên Drive</a>`
     : '<span class="muted">Chưa sinh file đáp án</span>';
   $('#examsScreen').innerHTML = `
-    <div class="toolbar"><button class="btn btn-sm" id="hubBack">← Danh sách bài</button><span class="spacer"></span>${badge}</div>
+    <div class="toolbar"><button class="btn btn-sm" id="hubBack">← Danh sách bài</button><span class="spacer"></span>${chips}${badge}</div>
     <div class="panel-title">${esc(b.tenBai)} <span class="muted" style="font-weight:400">· ${esc(b.ngay||'chưa ghi ngày')} · nhóm ${b.cacNhom.map(x=>esc(x)).join(', ')||'—'}</span></div>
 
     <div class="card hubcard">
@@ -787,12 +785,25 @@ function renderBaiHub(b, info){
         <span class="spacer"></span>
         <a class="link" href="${esc(info.folderUrl)}" target="_blank">Mở thư mục ảnh trên Drive</a>
       </div>
+    </div>
+
+    <div class="card hubcard">
+      <h3>3. Điểm</h3>
+      <p class="muted" style="margin:4px 0 10px">${b.soKetQua ? ('Đã có <b>'+b.soKetQua+'</b> kết quả'+(b.trangThai==='Đã công bố'?' · <b style="color:var(--ok)">đã công bố</b>':' · chưa công bố')+'.') : 'Chưa nhập điểm.'} Chấm bằng TNMaker rồi chọn file điểm xuất ra (.xls); web đối chiếu với danh sách lớp và báo các SBD bị lỗi trước khi ghi.</p>
+      <div class="toolbar" style="margin:0">
+        <button class="btn btn-primary btn-sm" id="scorePick">Nhập file điểm TNMaker…</button>
+        <input type="file" id="scoreIn" accept=".xls,.xlsx,.csv" class="hidden">
+        ${b.soKetQua ? '<button class="btn btn-sm" id="hubResults">Xem kết quả</button>' : ''}
+      </div>
     </div>`;
   $('#hubBack').onclick = renderBaiList;
   $('#hubAns').onclick = ()=>{ EX.curMaDe = c.maDeList[0]; renderAnswers(); };
   $('#hubCfg').onclick = ()=> startConfig(b.maBai, b);
   $('#pdfPick').onclick = ()=> $('#pdfIn').click();
   $('#pdfIn').onchange = e=>{ const arr = Array.from(e.target.files||[]); e.target.value=''; openPdfWizard(arr, b.maBai, info.count); };
+  $('#scorePick').onclick = ()=> $('#scoreIn').click();
+  $('#scoreIn').onchange = e=>{ const f = (e.target.files||[])[0]; e.target.value=''; if(f) openScoreImport(f, b); };
+  if($('#hubResults')) $('#hubResults').onclick = ()=> openResults(b.maBai);
 }
 
 /* >>> UPLOAD-QUEUE */
@@ -970,9 +981,476 @@ async function finishUpload(ctx){
   };
 }
 
+/* >>> PARSE-TNMAKER */
+function nfc(s){ return String(s==null?'':s).normalize('NFC'); }
+function normSbdClient(v){
+  let s = String(v==null?'':v).trim();
+  if(/^\d+(\.0+)?$/.test(s)) s = String(parseInt(s,10));
+  s = s.replace(/\D/g,'');
+  while(s.length && s.length<6) s = '0'+s;
+  return s;
+}
+function normMaDeClient(v){
+  const s = String(v==null?'':v).trim();
+  return /^\d+(\.0+)?$/.test(s) ? ('00'+parseInt(s,10)).slice(-3) : s;
+}
+function toNum(v){
+  if(typeof v === 'number') return v;
+  const t = String(v==null?'':v).trim();
+  return t === '' ? NaN : Number(t.replace(',','.'));
+}
+
+// Đọc 2 tab của file điểm TNMaker (đã đổi sang mảng 2 chiều). Không phụ thuộc thư viện, chạy được ở trình duyệt và node.
+function parseTnmakerAoa(scoreAoa, statAoa){
+  const warnings = [];
+  const hdr = (scoreAoa[0]||[]).map(x=>nfc(x).trim().toLowerCase());
+  const col = name => hdr.indexOf(name);
+  const cSbd = col('số báo danh'), cMa = col('mã đề'), cTong = col('tổng điểm');
+  const cP1 = col('p1'), cP2 = col('p2'), cP3 = col('p3'), cBai = col('kiểm tra');
+  if(cSbd<0 || cMa<0 || cTong<0) throw new Error('Không đúng định dạng file điểm TNMaker (thiếu cột Số báo danh, Mã đề hoặc Tổng điểm).');
+
+  const rows = []; let tenBai = '';
+  for(let i=1; i<scoreAoa.length; i++){
+    const r = scoreAoa[i];
+    if(!r || r[cSbd]==='' || r[cSbd]==null) continue;
+    if(!tenBai && cBai>=0) tenBai = nfc(r[cBai]).trim();
+    const o = {
+      sbd: normSbdClient(r[cSbd]), maDe: normMaDeClient(r[cMa]),
+      tong: toNum(r[cTong]), p1: cP1>=0?toNum(r[cP1]):0, p2: cP2>=0?toNum(r[cP2]):0, p3: cP3>=0?toNum(r[cP3]):0, tl: null
+    };
+    if(!isFinite(o.tong)){ warnings.push('Dòng '+(i+1)+': điểm không phải số, đã bỏ qua (SBD '+o.sbd+')'); continue; }
+    ['p1','p2','p3'].forEach(k=>{ if(!isFinite(o[k])) o[k] = 0; });
+    rows.push(o);
+  }
+  if(!rows.length) throw new Error('File không có dòng điểm nào.');
+
+  const keys = {}; let shape = null;
+  if(statAoa && statAoa.length > 1){
+    const h = (statAoa[0]||[]).map(x=>nfc(x).trim());
+    const lo = h.map(x=>x.toLowerCase());
+    const cS = lo.indexOf('số báo danh'), cM = lo.indexOf('mã đề'), cC = lo.indexOf('câu');
+    if(cS>=0 && cM>=0 && cC>=0){
+      // Chia các cột câu hỏi thành 3 phần theo nhãn: 1..n | 1a..nd | 1..m
+      const part = []; let cur = 1, seenP2 = false, prevNum = 0;
+      for(let c=cC+1; c<h.length; c++){
+        const lb = h[c];
+        if(/^\d+[a-dA-D]$/.test(lb)){ cur = 2; seenP2 = true; }
+        else if(/^\d+$/.test(lb)){
+          const n = parseInt(lb,10);
+          if(seenP2 || n <= prevNum) cur = 3;
+          prevNum = n;
+        }
+        part[c] = cur;
+      }
+      const parseRow = row => {
+        const a = {p1:[], p2cells:[], p3:[]};
+        for(let c=cC+1; c<h.length; c++){
+          const v = nfc(row[c]).trim();
+          if(part[c]===1) a.p1.push(v.toUpperCase()==='X' ? '' : v.toUpperCase());
+          else if(part[c]===2){ const u = v.toUpperCase(); a.p2cells.push(u==='Đ'||u==='S' ? u : '_'); }
+          else a.p3.push(v.toUpperCase()==='X' ? '' : v.replace(/_+$/,''));
+        }
+        const p2 = [];
+        for(let i=0; i<a.p2cells.length; i+=4) p2.push(a.p2cells.slice(i,i+4).join('').padEnd(4,'_'));
+        return {p1:a.p1, p2, p3:a.p3};
+      };
+      const recs = [];
+      for(let r=1; r<statAoa.length; r++){
+        const row = statAoa[r]; if(!row) continue;
+        const tag = nfc(row[cC]).trim();
+        if(tag === 'Trả lời') recs.push({sbd:normSbdClient(row[cS]), maDe:normMaDeClient(row[cM]), tl:parseRow(row), key:null, used:false});
+        else if(tag === 'Đáp án' && recs.length && !recs[recs.length-1].key) recs[recs.length-1].key = parseRow(row);
+      }
+      if(recs.length){
+        shape = {n1: part.filter(x=>x===1).length, n2: part.filter(x=>x===2).length/4, n3: part.filter(x=>x===3).length};
+        let khongDong = 0;
+        const keyBad = {};
+        rows.forEach(row=>{
+          const rec = recs.find(x=>!x.used && x.sbd===row.sbd && x.maDe===row.maDe);
+          if(!rec){ khongDong++; return; }
+          rec.used = true; row.tl = rec.tl;
+          if(rec.key){
+            const k = JSON.stringify(rec.key);
+            if(!keys[row.maDe]) keys[row.maDe] = rec.key;
+            else if(JSON.stringify(keys[row.maDe]) !== k) keyBad[row.maDe] = true;
+          }
+        });
+        if(khongDong) warnings.push(khongDong+' dòng điểm không có chi tiết câu trả lời trong tab Thống kê.');
+        Object.keys(keyBad).forEach(m=> warnings.push('Đáp án của mã đề '+m+' không đồng nhất giữa các học sinh trong file.'));
+        const thua = recs.filter(x=>!x.used).length;
+        if(thua) warnings.push(thua+' dòng trong tab Thống kê không có trong Bảng điểm tổng (bỏ qua).');
+      }
+    }
+  }
+  if(!shape) warnings.push('File không có tab Thống kê hợp lệ: vẫn nhập được điểm, nhưng sẽ không xem được câu sai.');
+  return {tenBai, rows, keys, shape, warnings};
+}
+/* <<< PARSE-TNMAKER */
+
+/* >>> EXPORT */
+function fmtNum(n){ return Math.round(Number(n)*100)/100; }
+function spaceSbd(s){ s = String(s||''); return s.slice(0,3)+' '+s.slice(3); }
+function safeSheetName(name, used){
+  const base = String(name||'Nhóm').replace(/[\\\/\?\*\[\]:]/g,' ').replace(/\s+/g,' ').trim().slice(0,28) || 'Nhóm';
+  let n = base, k = 2;
+  while(used[n.toLowerCase()]){ n = base+' '+k; k++; }
+  used[n.toLowerCase()] = 1;
+  return n;
+}
+// Bảng điểm giống mẫu mẹ đang dùng: mỗi nhóm một tab, dòng 1 là tiêu đề nhóm, dòng 2 là tên cột.
+function buildExportWorkbook(X, data){
+  const wb = X.utils.book_new(), used = {};
+  data.groups.forEach(g=>{
+    const list = g.students;
+    if(!list.length) return;
+    const aoa = [];
+    aoa.push(['NHÓM '+g.tenNhom+' – SỐ BÁO DANH '+spaceSbd(list[0].sbd)+'- '+spaceSbd(list[list.length-1].sbd)]);
+    aoa.push(['STT','HỌ','TÊN','SBD','LỚP','MÃ ĐỀ','ĐIỂM','P1','P2','P3','GHI CHÚ']);
+    list.forEach((s,i)=>{
+      const k = s.kq;
+      aoa.push([i+1, s.ho||'', s.ten||'', s.sbd, s.lop||'', k?k.maDe:'', k?fmtNum(k.tong):'', k?fmtNum(k.p1):'', k?fmtNum(k.p2):'', k?fmtNum(k.p3):'', k?(k.daSua?'Đã sửa':''):'Vắng']);
+    });
+    const ws = X.utils.aoa_to_sheet(aoa);
+    ws['!merges'] = [{s:{r:0,c:0}, e:{r:0,c:10}}];
+    ws['!cols'] = [{wch:5},{wch:18},{wch:10},{wch:9},{wch:7},{wch:7},{wch:7},{wch:6},{wch:6},{wch:6},{wch:10}];
+    X.utils.book_append_sheet(wb, ws, safeSheetName(g.tenNhom, used));
+  });
+  if(data.orphan && data.orphan.length){
+    const aoa = [['SBD','MÃ ĐỀ','ĐIỂM','P1','P2','P3','GHI CHÚ']];
+    data.orphan.forEach(o=> aoa.push([o.sbd, o.kq.maDe, fmtNum(o.kq.tong), fmtNum(o.kq.p1), fmtNum(o.kq.p2), fmtNum(o.kq.p3), o.kq.daSua?'Đã sửa':'Không còn trong danh sách']));
+    X.utils.book_append_sheet(wb, X.utils.aoa_to_sheet(aoa), safeSheetName('Khác', used));
+  }
+  if(!wb.SheetNames.length) throw new Error('Chưa có dữ liệu để xuất');
+  return wb;
+}
+/* <<< EXPORT */
+
+/* ================= ĐIỂM: NHẬP FILE TNMAKER, ĐỐI SOÁT, KẾT QUẢ ================= */
+function displayStatus(s){ return ['Nháp','Chờ chấm','Sẵn sàng chấm'].includes(s) ? 'Chưa có điểm' : s; }
+const deepCopy = o => JSON.parse(JSON.stringify(o));
+
+async function openScoreImport(file, b){
+  if(typeof XLSX === 'undefined'){ toast('Chưa tải được thư viện Excel. Kiểm tra mạng rồi tải lại trang.', true); return; }
+  overlay('<h2>Đang đọc file…</h2><p class="muted">Chờ vài giây</p>', true);
+  let parsed;
+  try{
+    const wb = XLSX.read(await file.arrayBuffer(), {type:'array'});
+    const find = (...names)=> wb.SheetNames.find(n=> names.includes(nfc(n).trim().toLowerCase()));
+    const sN = find('bảng điểm tổng') || wb.SheetNames[0];
+    const tN = find('thống kê');
+    const aoa = n => XLSX.utils.sheet_to_json(wb.Sheets[n], {header:1, raw:true, defval:''});
+    parsed = parseTnmakerAoa(aoa(sN), tN ? aoa(tN) : null);
+  }catch(e){ closeOverlay(); toast('Không đọc được file: '+((e&&e.message)||e), true); return; }
+  overlay('<h2>Đang đối chiếu với danh sách lớp…</h2><p class="muted">Chờ vài giây</p>', true);
+  try{
+    const pv = await apiCall('previewDiem', {maBai:b.maBai, rows:parsed.rows, keys:parsed.keys, shape:parsed.shape});
+    closeOverlay();
+    EX.imp = {b, file:file.name, parsed, pv, dec:{}};
+    initDecisions(EX.imp);
+    renderReconcile();
+  }catch(e){ closeOverlay(); handleErr(e); }
+}
+
+// Lựa chọn mặc định an toàn cho từng dòng có vấn đề
+function initDecisions(imp){
+  const first = {};
+  imp.pv.rows.forEach(r=>{
+    const codes = r.issues.map(x=>x.code);
+    let d = {a:'keep'};
+    if(codes.includes('KHONG_CO_SBD') || codes.includes('TRUNG_DS')) d = {a:'skip'};
+    else if(codes.includes('DA_SUA_TAY')) d = {a:'skip'};
+    else if(codes.includes('DA_CHUYEN') && r.goiY) d = {a:'assign', to:r.goiY};
+    if(codes.includes('TRUNG_FILE')){
+      if(first[r.sbd] !== undefined) d = {a:'skip'}; else first[r.sbd] = r.i;
+    }
+    imp.dec[r.i] = d;
+  });
+}
+function decValue(d){ return d.a==='assign' ? 'assign:'+d.to : d.a; }
+function parseDec(v){ return v.indexOf('assign:')===0 ? {a:'assign', to:v.slice(7)} : {a:v}; }
+
+function decOptions(r){
+  const pv = EX.imp.pv, codes = r.issues.map(x=>x.code), opts = [];
+  const sua = codes.includes('DA_SUA_TAY');
+  if(!codes.includes('KHONG_CO_SBD') && !codes.includes('TRUNG_DS')) opts.push(['keep', sua ? 'Ghi đè bằng điểm trong file' : 'Ghi như trong file']);
+  opts.push(['skip', sua ? 'Giữ bản đã sửa tay' : 'Bỏ qua dòng này']);
+  const pfx = r.sbd.slice(0,3);
+  const cand = pv.absent.filter(a=>a.sbd.slice(0,3)===pfx);
+  if(r.goiY && !cand.find(a=>a.sbd===r.goiY)) opts.push(['assign:'+r.goiY, 'Gán sang SBD mới '+r.goiY]);
+  cand.forEach(a=> opts.push(['assign:'+a.sbd, 'Gán cho '+a.sbd+' · '+((a.ho||'')+' '+(a.ten||'')).trim()]));
+  return opts;
+}
+
+function finalRows(){
+  const imp = EX.imp, out = [];
+  imp.pv.rows.forEach(r=>{
+    const d = imp.dec[r.i] || {a:'keep'};
+    if(d.a === 'skip') return;
+    out.push(Object.assign({}, imp.parsed.rows[r.i], {sbd: d.a==='assign' ? d.to : r.sbd}));
+  });
+  return out;
+}
+function dupSbd(rows){ const seen = {}, dup = []; rows.forEach(r=>{ if(seen[r.sbd]) dup.push(r.sbd); seen[r.sbd] = 1; }); return Array.from(new Set(dup)); }
+
+function renderReconcile(){
+  const imp = EX.imp, pv = imp.pv, p = imp.parsed;
+  const bad = pv.rows.filter(r=>r.issues.length);
+  const maDes = Array.from(new Set(pv.rows.map(r=>r.maDe))).sort().join(', ');
+  const dc = pv.doiChieu;
+  const warns = [];
+  (p.warnings||[]).forEach(w=> warns.push(esc(w)));
+  if(pv.shapeWarn) warns.push(esc(pv.shapeWarn));
+  pv.keyConflicts.forEach(k=> warns.push('Mã đề '+esc(k.maDe)+': đáp án trên web khác đáp án trong file ở '+k.soCau+' câu ('+k.chiTiet.map(x=>esc(x)).join('; ')+'). Web sẽ lấy đáp án trong file TNMaker, vì điểm đã chấm theo nó.'));
+  if(p.tenBai && nfc(p.tenBai).trim() !== nfc(imp.b.tenBai).trim()) warns.push('Tên bài trong file là "'+esc(p.tenBai)+'", khác tên bài trên web "'+esc(imp.b.tenBai)+'". Kiểm tra xem có chọn nhầm file không.');
+  const rows = bad.map(r=>{
+    const msgs = r.issues.map(x=>`<div style="color:${x.level==='error'?'var(--danger)':'var(--warn)'}">${esc(x.msg)}</div>`).join('');
+    const name = r.ho||r.ten ? esc(((r.ho||'')+' '+(r.ten||'')).trim()) : '<span class="muted">không rõ</span>';
+    const cur = decValue(imp.dec[r.i]);
+    const opts = decOptions(r).map(o=>`<option value="${esc(o[0])}" ${o[0]===cur?'selected':''}>${esc(o[1])}</option>`).join('');
+    return `<tr><td class="sbd">${esc(r.sbd)}<br>${name}</td><td>${esc(r.maDe)}</td><td class="num">${fmtNum(r.tong)}</td><td style="font-size:13px">${msgs}</td>
+      <td><select class="impDec" data-i="${r.i}" style="width:100%;padding:6px;border:1px solid var(--line);border-radius:6px">${opts}</select></td></tr>`;
+  }).join('');
+  const absentHtml = pv.absent.length ? `<details style="margin:10px 0"><summary style="cursor:pointer">Có tên trong danh sách nhưng không có điểm trong file (${pv.absent.length} em)</summary>
+      <div style="font-size:14px;padding:6px 0">${pv.absent.map(a=>esc(a.sbd)+' · '+esc(((a.ho||'')+' '+(a.ten||'')).trim())).join('<br>')}</div>
+      <div class="muted" style="font-size:13px">Các em này sẽ hiện là "Vắng". Có thể nhập tay điểm sau ở màn kết quả.</div></details>` : '';
+  const modeHtml = pv.existing.count ? `<div class="card" style="padding:12px;margin:10px 0">
+      <div style="font-size:14px;margin-bottom:6px">Bài này đã có <b>${pv.existing.count}</b> kết quả${pv.existing.edited.length?' (trong đó '+pv.existing.edited.length+' bản đã sửa tay)':''}.</div>
+      <label style="display:block;font-size:14px"><input type="radio" name="impMode" value="merge" checked> Cập nhật các em có trong file, giữ nguyên các em khác</label>
+      <label style="display:block;font-size:14px"><input type="radio" name="impMode" value="replace"> Xóa hết kết quả cũ của bài rồi nhập lại từ file${pv.existing.edited.length?' (mất cả bản sửa tay)':''}</label></div>` : '';
+  $('#examsScreen').innerHTML = `
+    <div class="toolbar"><button class="btn btn-sm" id="impCancel">← Hủy, về trang bài</button><span class="panel-title" style="margin:0 8px">Nhập điểm: ${esc(imp.b.tenBai)}</span></div>
+    <div class="card" style="padding:16px;max-width:900px">
+      <p style="margin:0 0 6px;font-size:14px">File <b>${esc(imp.file)}</b>: đọc được <b>${pv.rows.length}</b> dòng điểm (mã đề ${esc(maDes)}). Khớp danh sách, không có vấn đề: <b>${pv.rows.length-bad.length}</b>. Cần xem: <b style="color:${bad.length?'var(--warn)':'var(--ok)'}">${bad.length}</b>.</p>
+      ${(dc.khop+dc.lech)? `<p style="margin:0 0 6px;font-size:14px">Web chấm lại từ câu trả lời trong file: <b>${dc.khop}/${dc.khop+dc.lech}</b> khớp điểm TNMaker${dc.lech?', <b style="color:var(--warn)">'+dc.lech+' lệch</b>':''}.</p>` : ''}
+      ${warns.length ? '<div class="notice">'+warns.map(w=>'<div>• '+w+'</div>').join('')+'</div>' : ''}
+      ${bad.length ? `<div style="overflow:auto"><table><thead><tr><th>SBD · Họ tên</th><th>Mã đề</th><th>Điểm</th><th>Vấn đề</th><th style="min-width:200px">Cách xử lý</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p style="color:var(--ok);font-size:14px">Không có dòng nào cần xử lý.</p>'}
+      ${absentHtml}${modeHtml}
+      <div class="toolbar" style="margin-top:12px"><button class="btn btn-primary" id="impGo">Ghi điểm</button><span class="muted" id="impCount"></span></div>
+    </div>`;
+  const upd = ()=>{ const n = finalRows().length; $('#impCount').textContent = 'Sẽ ghi '+n+' / '+pv.rows.length+' dòng'; };
+  document.querySelectorAll('.impDec').forEach(s=> s.onchange = ()=>{ imp.dec[+s.dataset.i] = parseDec(s.value); upd(); });
+  $('#impCancel').onclick = ()=>{ EX.imp = null; openBai(imp.b.maBai); };
+  $('#impGo').onclick = doCommit;
+  upd();
+}
+
+async function doCommit(){
+  const imp = EX.imp, rows = finalRows();
+  const dup = dupSbd(rows);
+  if(dup.length){ toast('SBD '+dup.join(', ')+' bị trùng sau khi xử lý. Hãy chọn "Bỏ qua" cho một trong các dòng.', true); return; }
+  const mode = (document.querySelector('input[name=impMode]:checked')||{}).value || 'merge';
+  if(!rows.length && mode !== 'replace'){ toast('Không có dòng nào để ghi', true); return; }
+  if(mode === 'replace' && !confirm('Xóa hết kết quả cũ của bài (kể cả bản sửa tay) rồi ghi lại từ file?')) return;
+  const g = $('#impGo'); g.disabled = true; g.textContent = 'Đang ghi…';
+  try{
+    const r = await apiCall('commitDiem', {maBai:imp.b.maBai, rows, keys:imp.parsed.keys, mode, tenFile:imp.file});
+    toast('Đã ghi '+r.soDong+' kết quả');
+    EX.imp = null;
+    openResults(imp.b.maBai);
+  }catch(e){ toast(e.message, true); const x = $('#impGo'); if(x){ x.disabled = false; x.textContent = 'Ghi điểm'; } }
+}
+
+/* ---------- Màn kết quả ---------- */
+async function openResults(maBai){
+  $('#examsScreen').innerHTML = '<p class="muted">Đang tải kết quả…</p>';
+  try{
+    const data = await apiCall('getKetQua', {maBai});
+    EX.res = {data, tab: data.groups.length ? data.groups[0].maNhom : '*'};
+    renderResults();
+  }catch(e){
+    handleErr(e);
+    $('#examsScreen').innerHTML = '<p class="muted">Không tải được kết quả.</p><button class="btn btn-sm" id="resFail">← Trang bài</button>';
+    $('#resFail').onclick = ()=> openBai(maBai);
+  }
+}
+function avgTong(list){ const v = list.filter(s=>s.kq).map(s=>s.kq.tong); return v.length ? Math.round(v.reduce((a,b)=>a+b,0)/v.length*100)/100 : null; }
+
+function renderResults(){
+  const data = EX.res.data, b = data.bai, tab = EX.res.tab;
+  const pub = b.trangThai === 'Đã công bố';
+  const nav = data.groups.map(g=>{
+    const n = g.students.filter(s=>s.kq).length, a = avgTong(g.students);
+    return `<button class="group ${tab===g.maNhom?'active':''}" data-t="${esc(g.maNhom)}"><span class="n">${esc(g.tenNhom)}</span><span class="c">${n}/${g.students.length} có điểm${a!==null?' · TB '+a:''}</span></button>`;
+  }).join('') + (data.orphan.length ? `<button class="group ${tab==='*'?'active':''}" data-t="*"><span class="n">Khác</span><span class="c">${data.orphan.length} kết quả không còn trong danh sách</span></button>` : '');
+  let list = [];
+  if(tab === '*') list = data.orphan.map(o=>({sbd:o.sbd, ho:'', ten:'(không còn trong danh sách)', kq:o.kq}));
+  else { const g = data.groups.find(x=>x.maNhom===tab); if(g) list = g.students; }
+  const rows = list.map((s,i)=>{
+    const k = s.kq;
+    return `<tr class="${k?'':'inactive'}" data-sbd="${esc(s.sbd)}">
+      <td class="muted">${i+1}</td><td>${esc(s.ho)}</td><td>${esc(s.ten)}</td><td class="sbd">${esc(s.sbd)}</td>
+      <td>${k?esc(k.maDe):''}</td>
+      <td class="num"><b>${k?fmtNum(k.tong):'—'}</b>${k&&k.daSua?' <span class="muted" title="Đã sửa tay">✎</span>':''}</td>
+      <td class="num">${k?fmtNum(k.p1):''}</td><td class="num">${k?fmtNum(k.p2):''}</td><td class="num">${k?fmtNum(k.p3):''}</td>
+      <td class="act">${k?'<button class="btn btn-sm" data-edit>Sửa</button>':'<span class="muted">Vắng</span> <button class="btn btn-sm" data-edit>Nhập tay</button>'}</td></tr>`;
+  }).join('');
+  $('#examsScreen').innerHTML = `
+    <style>table td.num{text-align:right;font-variant-numeric:tabular-nums} .edgrid{display:flex;flex-wrap:wrap;gap:6px 14px} .ei{display:inline-flex;align-items:center;gap:3px;font-size:13px}
+      .ei b{min-width:20px;text-align:right;color:var(--muted);font-weight:500} .ei select,.ei input{padding:3px 4px;border:1px solid var(--line);border-radius:5px;font-size:13px} .ck{color:var(--muted);font-style:normal;font-size:12px} .sai{background:#fdeceb;border-color:#f0b4ad !important}
+      .ei2{width:100%;display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:13px}</style>
+    <div class="toolbar"><button class="btn btn-sm" id="resBack">← Trang bài</button><span class="spacer"></span>
+      <button class="btn btn-sm" id="resHist">Lịch sử sửa</button>
+      <button class="btn btn-sm" id="resRe">Nhập lại file điểm</button>
+      <button class="btn btn-sm" id="resXls">Xuất Excel</button>
+      <button class="btn btn-sm ${pub?'':'btn-primary'}" id="resPub">${pub?'Ẩn điểm':'Công bố điểm'}</button></div>
+    <div class="panel-title">${esc(b.tenBai)} <span class="muted" style="font-weight:400">· ${esc(b.ngay||'')}</span> <span class="pill ${pub?'ok':'wait'}">${pub?'Đã công bố':'Chưa công bố'}</span></div>
+    <div class="nav">${nav}</div>
+    <div style="overflow:auto"><table><thead><tr><th>#</th><th>Họ</th><th>Tên</th><th>SBD</th><th>Mã đề</th><th>Điểm</th><th>P1</th><th>P2</th><th>P3</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="10" class="muted">Không có học sinh.</td></tr>'}</tbody></table></div>`;
+  document.querySelectorAll('#examsScreen .nav .group').forEach(x=> x.onclick = ()=>{ EX.res.tab = x.dataset.t; renderResults(); });
+  document.querySelectorAll('#examsScreen [data-edit]').forEach(x=> x.onclick = ()=>{
+    const sbd = x.closest('tr').dataset.sbd; const s = list.find(y=>y.sbd===sbd); if(s) openEditor(s);
+  });
+  $('#resBack').onclick = ()=> openBai(b.maBai);
+  $('#resHist').onclick = ()=> openHistory(b.maBai);
+  $('#resRe').onclick = ()=> openBai(b.maBai);
+  $('#resXls').onclick = exportExcel;
+  $('#resPub').onclick = togglePublish;
+}
+
+async function togglePublish(){
+  const b = EX.res.data.bai, pub = b.trangThai === 'Đã công bố';
+  if(!pub && !confirm('Công bố điểm bài "'+b.tenBai+'"?\nẢnh phiếu của bài sẽ tự xóa sau 30 ngày kể từ hôm nay. (Trang tra điểm cho học sinh làm ở bước sau.)')) return;
+  try{
+    const r = await apiCall('setCongBo', {maBai:b.maBai, congBo:!pub});
+    b.trangThai = r.trangThai;
+    toast(!pub ? 'Đã công bố' : 'Đã ẩn điểm');
+    renderResults();
+  }catch(e){ handleErr(e); }
+}
+
+function exportExcel(){
+  if(typeof XLSX === 'undefined'){ toast('Chưa tải được thư viện Excel. Kiểm tra mạng rồi tải lại trang.', true); return; }
+  try{
+    const wb = buildExportWorkbook(XLSX, EX.res.data);
+    const nm = String(EX.res.data.bai.tenBai||'bai').replace(/[\\\/:*?"<>|]/g,'-').trim();
+    XLSX.writeFile(wb, 'diem - '+nm+'.xlsx');
+  }catch(e){ toast((e&&e.message)||String(e), true); }
+}
+
+async function openHistory(maBai){
+  overlay('<h2>Lịch sử sửa</h2><p class="muted">Đang tải…</p>', false, true);
+  try{
+    const r = await apiCall('getNhatKy', {maBai});
+    const rows = r.nhatKy.map(x=>`<tr><td class="muted" style="white-space:nowrap">${esc(x.thoiGian)}</td><td>${esc(x.nguoiSua)}</td><td>${esc(x.sbd)}</td><td>${esc(x.truong)}</td><td>${esc(x.cu)} → ${esc(x.moi)}</td><td>${esc(x.lyDo)}</td></tr>`).join('')
+      || '<tr><td colspan="6" class="muted">Chưa có thay đổi nào.</td></tr>';
+    overlay(`<h2>Lịch sử sửa</h2><div style="overflow:auto"><table><thead><tr><th>Lúc</th><th>Người</th><th>SBD</th><th>Mục</th><th>Thay đổi</th><th>Lý do</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="row"><button class="btn" onclick="closeOverlay()">Đóng</button></div>`, false, true);
+  }catch(e){ closeOverlay(); handleErr(e); }
+}
+
+/* ---------- Sửa điểm một em ---------- */
+function openEditor(stu){
+  const data = EX.res.data, cfg = data.bai.cauHinh, kq = stu.kq;
+  const blank = {p1:[], p2:[], p3:[]};
+  const tl = deepCopy(kq && kq.tl ? kq.tl : blank);
+  EX.ed = {
+    sbd: stu.sbd, name: ((stu.ho||'')+' '+(stu.ten||'')).trim(), hasKq: !!kq,
+    maDe0: kq ? kq.maDe : '', maDe: kq ? kq.maDe : ((cfg.maDeList||[])[0]||''),
+    tl0: deepCopy(tl), tl,
+    d0: kq ? {tong:kq.tong, p1:kq.p1, p2:kq.p2, p3:kq.p3} : null,
+    d: kq ? {tong:kq.tong, p1:kq.p1, p2:kq.p2, p3:kq.p3} : {tong:'', p1:'', p2:'', p3:''},
+    why: ''
+  };
+  renderEditor();
+}
+function readEditorInputs(){
+  const ed = EX.ed; if(!$('#edWhy')) return;
+  ed.maDe = $('#edMa').value;
+  document.querySelectorAll('.edP1').forEach(s=>{ ed.tl.p1[+s.dataset.i] = s.value; });
+  const p2 = {};
+  document.querySelectorAll('.edP2').forEach(s=>{ const i = +s.dataset.i, k = +s.dataset.k; (p2[i] = p2[i] || ['_','_','_','_'])[k] = s.value || '_'; });
+  Object.keys(p2).forEach(i=>{ ed.tl.p2[+i] = p2[i].join(''); });
+  document.querySelectorAll('.edP3').forEach(s=>{ ed.tl.p3[+s.dataset.i] = s.value.trim(); });
+  ['tong','p1','p2','p3'].forEach(f=>{ const el = $('#edD_'+f); if(el) ed.d[f] = el.value; });
+  ed.why = $('#edWhy').value;
+}
+function renderEditor(){
+  const ed = EX.ed, data = EX.res.data, cfg = data.bai.cauHinh;
+  const key = (data.keys||{})[ed.maDe];
+  const maOpts = (cfg.maDeList||[]).concat(ed.maDe0 && !(cfg.maDeList||[]).includes(ed.maDe0) ? [ed.maDe0] : [])
+    .map(m=>`<option ${m===ed.maDe?'selected':''}>${esc(m)}</option>`).join('');
+  let ans = '';
+  if(!key) ans = '<p class="muted" style="font-size:13px">Mã đề này chưa có đáp án trên hệ thống nên không tính lại được từ câu trả lời. Hãy sửa thẳng điểm ở phần bên dưới.</p>';
+  else {
+    if(cfg.p1 && cfg.p1.on){
+      let h = '';
+      for(let i=0; i<cfg.p1.soCau; i++){
+        const a = ed.tl.p1[i] || '', k = (key.p1||[])[i] || '';
+        h += `<span class="ei"><b>${i+1}</b><select class="edP1 ${a&&a!==k?'sai':''}" data-i="${i}">${['','A','B','C','D'].map(o=>`<option value="${o}" ${o===a?'selected':''}>${o||'—'}</option>`).join('')}</select><i class="ck">${esc(k)}</i></span>`;
+      }
+      ans += `<div style="margin:8px 0 4px;font-weight:600;font-size:13px">Phần I <span class="muted" style="font-weight:400">(chữ nghiêng nhỏ là đáp án đúng)</span></div><div class="edgrid">${h}</div>`;
+    }
+    if(cfg.p2 && cfg.p2.on){
+      let h = '';
+      for(let i=0; i<cfg.p2.soCau; i++){
+        const a = (ed.tl.p2[i]||'____').padEnd(4,'_'), k = (key.p2||[])[i] || '';
+        h += `<div class="ei2"><b style="min-width:42px">Câu ${i+1}</b>${[0,1,2,3].map(j=>{ const v = a[j]==='_' ? '' : a[j]; return `<span class="ei">${'abcd'[j]}<select class="edP2 ${v&&v!==(k[j]||'')?'sai':''}" data-i="${i}" data-k="${j}">${['','Đ','S'].map(o=>`<option value="${o}" ${o===v?'selected':''}>${o||'—'}</option>`).join('')}</select></span>`; }).join('')}<i class="ck">${esc(k)}</i></div>`;
+      }
+      ans += `<div style="margin:10px 0 4px;font-weight:600;font-size:13px">Phần II</div>${h}`;
+    }
+    if(cfg.p3 && cfg.p3.on){
+      let h = '';
+      for(let i=0; i<cfg.p3.soCau; i++){
+        const a = ed.tl.p3[i] || '', k = (key.p3||[])[i] || '';
+        h += `<span class="ei"><b>${i+1}</b><input class="edP3 ${a&&a!==k?'sai':''}" data-i="${i}" value="${esc(a)}" style="width:62px"><i class="ck">${esc(k)}</i></span>`;
+      }
+      ans += `<div style="margin:10px 0 4px;font-weight:600;font-size:13px">Phần III <span class="muted" style="font-weight:400">(so khớp từng ký tự, ví dụ 8,5 khác 8,50)</span></div><div class="edgrid">${h}</div>`;
+    }
+  }
+  const dIn = (f,l)=>`<div style="flex:1;min-width:70px"><label style="font-size:12px;color:var(--muted)">${l}</label><input id="edD_${f}" type="number" step="0.05" min="0" max="10" value="${esc(ed.d[f])}" style="width:100%;padding:7px;border:1px solid var(--line);border-radius:6px"></div>`;
+  overlay(`<h2>${ed.hasKq?'Sửa kết quả':'Nhập tay'}: ${esc(ed.name||'(không rõ tên)')} · ${esc(ed.sbd)}</h2>
+    <div class="field"><label>Mã đề</label><select id="edMa" style="padding:8px;border:1px solid var(--line);border-radius:6px">${maOpts}</select></div>
+    ${ans}
+    <details style="margin:12px 0"><summary style="cursor:pointer;font-size:14px">Hoặc sửa thẳng điểm (không tính lại từ câu trả lời)</summary>
+      <div style="display:flex;gap:8px;margin-top:8px">${dIn('tong','Tổng')}${dIn('p1','P1')}${dIn('p2','P2')}${dIn('p3','P3')}</div>
+      <div class="muted" style="font-size:12px;margin-top:4px">Chỉ điền ô nào cần đổi. Nếu chỉ điền P1/P2/P3, tổng tự cộng lại.</div></details>
+    <div class="field"><label>Lý do sửa (bắt buộc, được lưu vào lịch sử)</label><input id="edWhy" value="${esc(ed.why)}" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px"></div>
+    <div class="row">${ed.hasKq?'<button class="btn btn-danger" id="edDel" style="margin-right:auto">Xóa kết quả</button>':''}<button class="btn" onclick="closeOverlay()">Hủy</button><button class="btn btn-primary" id="edSave">Lưu</button></div>`, true, true);
+  $('#edMa').onchange = ()=>{ readEditorInputs(); renderEditor(); };
+  $('#edSave').onclick = saveEditor;
+  if($('#edDel')) $('#edDel').onclick = deleteEditor;
+}
+function findStudent(sbd){
+  const data = EX.res.data;
+  for(const g of data.groups){ const s = g.students.find(x=>x.sbd===sbd); if(s) return s; }
+  const o = data.orphan.find(x=>x.sbd===sbd); return o || null;
+}
+async function saveEditor(){
+  readEditorInputs();
+  const ed = EX.ed, data = EX.res.data;
+  const why = (ed.why||'').trim();
+  if(!why){ toast('Nhập lý do sửa', true); return; }
+  const anyAns = ed.tl.p1.some(x=>x) || ed.tl.p2.some(x=>/[ĐS]/.test(x)) || ed.tl.p3.some(x=>x);
+  const ansChanged = ed.maDe !== ed.maDe0 || JSON.stringify(ed.tl) !== JSON.stringify(ed.tl0);
+  const dChanged = ['tong','p1','p2','p3'].some(f=> String(ed.d[f]) !== String(ed.d0 ? ed.d0[f] : ''));
+  const payload = {maBai:data.bai.maBai, sbd:ed.sbd, lyDo:why};
+  if(ansChanged && anyAns){ payload.maDe = ed.maDe; payload.traLoi = ed.tl; }
+  else if(dChanged){ payload.maDe = ed.maDe0 || ed.maDe; ['tong','p1','p2','p3'].forEach(f=>{ if(String(ed.d[f]) !== '') payload[f] = ed.d[f]; }); }
+  else { toast('Chưa thay đổi gì', true); return; }
+  const btn = $('#edSave'); btn.disabled = true; btn.textContent = 'Đang lưu…';
+  try{
+    const r = await apiCall('editKetQua', payload);
+    const s = findStudent(ed.sbd); if(s) s.kq = r.kq;
+    closeOverlay(); toast('Đã lưu: '+fmtNum(r.kq.tong)+' điểm'); renderResults();
+  }catch(e){ toast(e.message, true); const x = $('#edSave'); if(x){ x.disabled = false; x.textContent = 'Lưu'; } }
+}
+async function deleteEditor(){
+  readEditorInputs();
+  const ed = EX.ed, why = (ed.why||'').trim();
+  if(!why){ toast('Nhập lý do xóa', true); return; }
+  if(!confirm('Xóa kết quả của '+(ed.name||ed.sbd)+'? Em này sẽ hiện là Vắng.')) return;
+  try{
+    await apiCall('xoaKetQua', {maBai:EX.res.data.bai.maBai, sbd:ed.sbd, lyDo:why});
+    const data = EX.res.data, s = findStudent(ed.sbd);
+    if(s && Object.prototype.hasOwnProperty.call(s, 'ho')) s.kq = null;       // học sinh trong danh sách: thành Vắng
+    else data.orphan = data.orphan.filter(x=>x.sbd !== ed.sbd);                // kết quả mồ côi: bỏ khỏi danh sách
+    closeOverlay(); toast('Đã xóa'); renderResults();
+  }catch(e){ toast(e.message, true); }
+}
+
 /* ---------- Lớp phủ dùng chung ---------- */
-function overlay(html, noClose){
-  $('#overlayRoot').innerHTML = `<div class="overlay" id="ov"><div class="card modal">${html}</div></div>`;
+function overlay(html, noClose, wide){
+  $('#overlayRoot').innerHTML = `<div class="overlay" id="ov"><div class="card modal${wide?' wide':''}">${html}</div></div>`;
   if(!noClose) $('#ov').onclick = e=>{ if(e.target.id==='ov') closeOverlay(); };
 }
 function closeOverlay(){ $('#overlayRoot').innerHTML=''; }
