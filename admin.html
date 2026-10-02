@@ -135,7 +135,8 @@
   </header>
   <div class="wrap">
     <div class="toolbar">
-      <button class="btn btn-sm" id="usersBtn">Tài khoản</button>
+      <button class="btn btn-sm" id="usersBtn">Tài khoản & giáo viên</button>
+      <button class="btn btn-sm" id="syncBtn">Đồng bộ nhóm</button>
       <button class="btn btn-sm" id="validateBtn">Kiểm tra danh sách</button>
       <span class="spacer"></span>
       <button class="btn btn-sm" id="reloadBtn">Tải lại</button>
@@ -181,6 +182,7 @@ async function showApp(){
   $('#loginView').classList.add('hidden'); $('#appView').classList.remove('hidden');
   $('#whoami').textContent = USER.fullName + ' · ' + (USER.role==='admin'?'Quản trị':'Giáo viên');
   $('#usersBtn').classList.toggle('hidden', USER.role!=='admin');
+  $('#syncBtn').classList.toggle('hidden', USER.role==='admin');
   openRoster();
   await loadGroups();
 }
@@ -326,6 +328,23 @@ function openTransfer(sbd){
   };
 }
 
+/* ---------- Đồng bộ nhóm ---------- */
+$('#syncBtn').onclick = async ()=>{
+  try{
+    const r = await apiCall('syncGroups');
+    showSyncReport(r);
+    loadGroups();
+  }catch(e){ handleErr(e); }
+};
+function showSyncReport(r){
+  const reg = (r.registered||[]).map(x=>esc(x.maNhom)+' '+esc(x.tenNhom)).join(', ') || '(không có)';
+  const con = (r.conflicts||[]).map(x=>`<div class="issue"><span class="t">${esc(x.maNhom)} ${esc(x.tenNhom)}</span><span>${esc(x.lyDo)}</span></div>`).join('');
+  overlay(`<h2>Kết quả đồng bộ</h2>
+    <p style="font-size:14px"><b>Đã đăng ký:</b> ${reg}</p>
+    ${con?('<p style="font-size:14px;margin-top:10px"><b>Bỏ qua (cần xử lý):</b></p>'+con):'<p class="muted" style="font-size:14px">Không có nhóm nào bị bỏ qua.</p>'}
+    <div class="row"><button class="btn" onclick="closeOverlay()">Đóng</button></div>`);
+}
+
 /* ---------- Kiểm tra danh sách ---------- */
 $('#validateBtn').onclick = async ()=>{
   overlay('<h2>Kiểm tra danh sách</h2><p class="muted">Đang kiểm tra…</p>');
@@ -357,33 +376,63 @@ function openChangePw(forced){
 
 /* ---------- Tài khoản (admin) ---------- */
 $('#usersBtn').onclick = openUsers;
+function dai(u){
+  if(u.rangeStart===''||u.rangeStart===undefined||u.rangeStart===null) return '—';
+  const p3 = n => ('00'+parseInt(n,10)).slice(-3);
+  return p3(u.rangeStart)+'–'+p3(u.rangeEnd);
+}
 async function openUsers(){
   $('#rosterScreen').classList.add('hidden'); $('#usersScreen').classList.remove('hidden');
   $('#usersScreen').innerHTML = '<p class="muted">Đang tải…</p>';
   try{
     const r = await apiCall('listUsers');
-    const rows = r.users.map(u=>`<tr>
+    const rows = r.users.map(u=>{
+      const isTeacher = u.role==='teacher';
+      return `<tr>
       <td>${esc(u.username)}</td><td>${esc(u.fullName)}</td>
       <td>${u.role==='admin'?'Quản trị':'Giáo viên'}</td>
+      <td>${isTeacher?esc(dai(u)):'—'}</td>
       <td>${u.active?'<span style="color:var(--ok)">Hoạt động</span>':'<span style="color:var(--danger)">Đã khóa</span>'}</td>
       <td class="act">
+        ${isTeacher?`<button class="btn btn-sm" data-act="edit" data-u="${esc(u.username)}" data-r="${esc(u.rosterSheetId||'')}" data-s="${u.rangeStart}" data-e="${u.rangeEnd}">Sửa file/dải</button>
+        <button class="btn btn-sm" data-act="sync" data-u="${esc(u.username)}">Đồng bộ</button>`:''}
         <button class="btn btn-sm" data-act="reset" data-u="${esc(u.username)}">Đặt lại MK</button>
         <button class="btn btn-sm" data-act="toggle" data-u="${esc(u.username)}" data-a="${u.active?0:1}">${u.active?'Khóa':'Mở'}</button>
-      </td></tr>`).join('');
+      </td></tr>`;}).join('');
     $('#usersScreen').innerHTML = `
       <div class="toolbar"><button class="btn btn-sm" id="backBtn">← Về danh sách lớp</button><span class="spacer"></span>
         <button class="btn btn-sm btn-primary" id="newUserBtn">Thêm tài khoản</button></div>
-      <table><thead><tr><th>Tài khoản</th><th>Họ tên</th><th>Vai trò</th><th>Trạng thái</th><th></th></tr></thead>
-      <tbody>${rows}</tbody></table>`;
+      <table><thead><tr><th>Tài khoản</th><th>Họ tên</th><th>Vai trò</th><th>Dải mã</th><th>Trạng thái</th><th></th></tr></thead>
+      <tbody>${rows}</tbody></table>
+      <p class="muted" style="font-size:13px;margin-top:10px">Dải mã = khoảng 3 số đầu của SBD dành riêng cho mỗi giáo viên (không chồng nhau). Thêm/sửa file danh sách xong, bấm <b>Đồng bộ</b> để quét các tab vào hệ thống.</p>`;
     $('#backBtn').onclick = ()=>{ openRoster(); };
     $('#newUserBtn').onclick = openNewUser;
     document.querySelectorAll('#usersScreen [data-act]').forEach(b=> b.onclick = async ()=>{
       try{
         if(b.dataset.act==='reset'){ const r=await apiCall('resetPassword',{username:b.dataset.u}); toast('Mật khẩu tạm: '+r.tempPassword); }
-        else { await apiCall('setUserActive',{username:b.dataset.u, active:b.dataset.a==='1'}); openUsers(); }
+        else if(b.dataset.act==='toggle'){ await apiCall('setUserActive',{username:b.dataset.u, active:b.dataset.a==='1'}); openUsers(); }
+        else if(b.dataset.act==='sync'){ const r=await apiCall('syncGroups',{username:b.dataset.u}); showSyncReport(r); }
+        else if(b.dataset.act==='edit'){ openEditTeacher(b.dataset.u, b.dataset.r, b.dataset.s, b.dataset.e); }
       }catch(e){ handleErr(e); }
     });
   }catch(e){ handleErr(e); }
+}
+function openEditTeacher(username, rosterId, s, e){
+  overlay(`
+    <h2>File & dải mã: ${esc(username)}</h2>
+    <div class="field"><label>ID file danh sách (phần giữa /d/ và /edit trong link Google Sheet)</label><input id="etRoster" value="${esc(rosterId||'')}" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px"></div>
+    <div class="field" style="display:flex;gap:8px">
+      <div style="flex:1"><label>Dải từ</label><input id="etS" type="number" min="0" max="999" value="${esc(s)}" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px"></div>
+      <div style="flex:1"><label>Dải đến</label><input id="etE" type="number" min="0" max="999" value="${esc(e)}" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px"></div>
+    </div>
+    <div class="row"><button class="btn" onclick="closeOverlay()">Hủy</button><button class="btn btn-primary" id="etGo">Lưu</button></div>
+  `);
+  $('#etGo').onclick = async ()=>{
+    try{
+      await apiCall('setTeacherRoster',{username, rosterSheetId:$('#etRoster').value.trim(), rangeStart:$('#etS').value, rangeEnd:$('#etE').value});
+      closeOverlay(); toast('Đã lưu. Nhớ bấm Đồng bộ để quét nhóm.'); openUsers();
+    }catch(e){ toast(e.message, true); }
+  };
 }
 function openNewUser(){
   overlay(`
@@ -391,12 +440,16 @@ function openNewUser(){
     <div class="field"><label>Tài khoản (không dấu, không cách)</label><input id="nuU" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px"></div>
     <div class="field"><label>Họ tên</label><input id="nuName" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px"></div>
     <div class="field"><label>Vai trò</label><select id="nuRole" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px"><option value="teacher">Giáo viên</option><option value="admin">Quản trị</option></select></div>
-    <div class="field"><label>ID Sheet danh sách của giáo viên (để trống nếu dùng chung)</label><input id="nuRoster" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px"></div>
+    <div class="field"><label>ID file danh sách của giáo viên (phần giữa /d/ và /edit trong link Google Sheet)</label><input id="nuRoster" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px"></div>
+    <div class="field" style="display:flex;gap:8px">
+      <div style="flex:1"><label>Dải mã từ</label><input id="nuS" type="number" min="0" max="999" placeholder="200" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px"></div>
+      <div style="flex:1"><label>đến</label><input id="nuE" type="number" min="0" max="999" placeholder="299" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px"></div>
+    </div>
     <div class="row"><button class="btn" onclick="closeOverlay()">Hủy</button><button class="btn btn-primary" id="nuGo">Tạo</button></div>
   `);
   $('#nuGo').onclick = async ()=>{
     try{
-      const r = await apiCall('createUser',{username:$('#nuU').value.trim(), fullName:$('#nuName').value.trim(), role:$('#nuRole').value, rosterSheetId:$('#nuRoster').value.trim()});
+      const r = await apiCall('createUser',{username:$('#nuU').value.trim(), fullName:$('#nuName').value.trim(), role:$('#nuRole').value, rosterSheetId:$('#nuRoster').value.trim(), rangeStart:$('#nuS').value, rangeEnd:$('#nuE').value});
       closeOverlay(); toast('Đã tạo. Mật khẩu tạm: '+r.tempPassword); openUsers();
     }catch(e){ toast(e.message, true); }
   };
