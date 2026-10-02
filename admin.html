@@ -94,6 +94,12 @@
 
   .notice{background:#fff7e6;border:1px solid #f3d99b;color:#8a5a00;padding:12px 14px;border-radius:8px;margin-bottom:16px;font-size:14px}
   .muted{color:var(--muted)}
+  .pill.ok{background:#e8f6ee;color:var(--ok)}
+  .pill.wait{background:#fff4e5;color:var(--warn)}
+  .hubcard{padding:16px;margin-bottom:12px;max-width:720px}
+  .hubcard h3{font-size:15px}
+  .bar{height:10px;background:#e7ecf1;border-radius:999px;overflow:hidden;margin:8px 0 10px}
+  .bar>div{height:100%;background:var(--primary);width:0;transition:width .2s}
   .issue{display:flex;gap:8px;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}
   .issue:last-child{border-bottom:none}
   .issue .t{font-weight:600;min-width:150px}
@@ -160,6 +166,8 @@
 <div id="overlayRoot"></div>
 <div id="toast"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+<script>if(window.pdfjsLib){pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';}</script>
 <script src="config.js"></script>
 <script src="api.js"></script>
 <script>
@@ -503,13 +511,13 @@ function cfgTotal(c){
   return t;
 }
 
-async function startConfig(maBai){
+async function startConfig(maBai, preloaded){
   // maBai null = tạo mới; nếu có = sửa cấu hình bài cũ
   EX = { bai:null, cfg:blankCfg(), ans:{}, curMaDe:null };
   let groups=[];
   try{ groups = (await apiCall('listGroups')).groups; }catch(e){ handleErr(e); return; }
   if(maBai){
-    try{ const b = await apiCall('getBai',{maBai}); EX.bai=b; EX.cfg=b.cauHinh; EX.ans=b.dapAn||{}; }catch(e){ handleErr(e); return; }
+    try{ const b = preloaded || await apiCall('getBai',{maBai}); EX.bai=b; EX.cfg=b.cauHinh; EX.ans=b.dapAn||{}; }catch(e){ handleErr(e); return; }
   }
   renderConfig(groups);
 }
@@ -664,7 +672,7 @@ function renderAnswers(){
       .yrow{display:inline-flex;align-items:center;gap:3px;margin-right:8px}
       .yrow b{font-weight:600;color:var(--muted);margin-right:2px}
     </style>
-    <div class="toolbar"><button class="btn btn-sm" id="ansBack">← Sửa cấu hình</button>
+    <div class="toolbar"><button class="btn btn-sm" id="ansHub">← Trang bài</button><button class="btn btn-sm" id="ansBack">Sửa cấu hình</button>
       <span class="panel-title" style="margin:0 8px">${esc(EX.bai.tenBai)} — nhập đáp án</span></div>
     <div class="toolbar"><span class="muted" style="margin-right:6px">Mã đề:</span>${tabs}
       <span class="spacer"></span>
@@ -678,6 +686,7 @@ function renderAnswers(){
     </div>`;
 
   $('#ansBack').onclick = ()=> startConfig(EX.bai.maBai);
+  $('#ansHub').onclick = ()=>{ if(confirm('Đáp án chưa bấm Lưu sẽ mất. Quay về trang bài?')) openBai(EX.bai.maBai); };
   document.querySelectorAll('#examsScreen [data-md]').forEach(b=> b.onclick=()=>{ collectVisible(); EX.curMaDe=b.dataset.md; renderAnswers(); });
   document.querySelectorAll('#examsScreen .seg[data-p="p1"]').forEach(b=> b.onclick=()=>{ collectVisible(); const a=ensureAns(md); a.p1[+b.dataset.i]=b.dataset.v; renderAnswers(); });
   document.querySelectorAll('#examsScreen .seg[data-p="p2"]').forEach(b=> b.onclick=()=>{
@@ -729,7 +738,237 @@ async function genFile(){
 function showFileLink(f){
   $('#ansFileLink').innerHTML = `<a class="link" href="${f.downloadUrl}" target="_blank">Tải file đáp án</a> · <a class="link" href="${f.viewUrl}" target="_blank">Mở trên Drive</a>`;
 }
-async function openBai(maBai){ startConfig(maBai); }
+/* ================= TRANG CỦA MỘT BÀI + TẢI PDF ================= */
+async function openBai(maBai){
+  $('#examsScreen').innerHTML = '<p class="muted">Đang tải bài…</p>';
+  try{
+    const [b, info] = await Promise.all([ apiCall('getBai',{maBai}), apiCall('anhInfo',{maBai}) ]);
+    renderBaiHub(b, info);
+  }catch(e){
+    handleErr(e);
+    $('#examsScreen').innerHTML = '<p class="muted">Không tải được bài.</p><button class="btn btn-sm" id="hubFail">← Danh sách bài</button>';
+    $('#hubFail').onclick = renderBaiList;
+  }
+}
+
+function renderBaiHub(b, info){
+  EX = { bai:b, cfg:b.cauHinh, ans:b.dapAn||{}, curMaDe:null };
+  const c = b.cauHinh;
+  const parts = [c.p1.on?('Phần I: '+c.p1.soCau+' câu'):'', c.p2.on?('Phần II: '+c.p2.soCau+' câu'):'', c.p3.on?('Phần III: '+c.p3.soCau+' câu'):''].filter(Boolean).join(' · ');
+  const thieu = [];
+  if(!b.dapAnFile) thieu.push('file đáp án');
+  if(!info.count) thieu.push('ảnh phiếu');
+  const quaSan = !['Nháp','Chờ chấm','Sẵn sàng chấm'].includes(b.trangThai);
+  const badge = quaSan ? `<span class="pill ok">${esc(b.trangThai)}</span>`
+    : (thieu.length ? `<span class="pill wait">Còn thiếu: ${thieu.join(', ')}</span>` : '<span class="pill ok">Sẵn sàng chấm</span>');
+  const fileLink = b.dapAnFile
+    ? `<a class="link" href="${esc(b.dapAnFile.downloadUrl)}" target="_blank">Tải file đáp án</a> · <a class="link" href="${esc(b.dapAnFile.viewUrl)}" target="_blank">Mở trên Drive</a>`
+    : '<span class="muted">Chưa sinh file đáp án</span>';
+  $('#examsScreen').innerHTML = `
+    <div class="toolbar"><button class="btn btn-sm" id="hubBack">← Danh sách bài</button><span class="spacer"></span>${badge}</div>
+    <div class="panel-title">${esc(b.tenBai)} <span class="muted" style="font-weight:400">· ${esc(b.ngay||'chưa ghi ngày')} · nhóm ${b.cacNhom.map(x=>esc(x)).join(', ')||'—'}</span></div>
+
+    <div class="card hubcard">
+      <h3>1. Đề và đáp án</h3>
+      <p class="muted" style="margin:4px 0 10px">${c.maDeList.length} mã đề (${c.maDeList.map(x=>esc(x)).join(', ')}) · ${parts}</p>
+      <div class="toolbar" style="margin:0">
+        <button class="btn btn-primary btn-sm" id="hubAns">Nhập / sửa đáp án</button>
+        <button class="btn btn-sm" id="hubCfg">Sửa cấu hình</button>
+        <span class="spacer"></span>${fileLink}
+      </div>
+    </div>
+
+    <div class="card hubcard">
+      <h3>2. Bài làm của học sinh (phiếu trả lời)</h3>
+      <p class="muted" style="margin:4px 0 10px">${info.count ? ('Đã có <b>'+info.count+'</b> ảnh trong thư mục ảnh của bài.') : 'Chưa có ảnh nào.'} Chọn file PDF (mỗi trang là một phiếu); web tự chuyển thành ảnh đúng chiều và đưa vào Drive.</p>
+      <div class="toolbar" style="margin:0">
+        <button class="btn btn-primary btn-sm" id="pdfPick">Chọn file PDF…</button>
+        <input type="file" id="pdfIn" accept="application/pdf,.pdf" multiple class="hidden">
+        <span class="spacer"></span>
+        <a class="link" href="${esc(info.folderUrl)}" target="_blank">Mở thư mục ảnh trên Drive</a>
+      </div>
+    </div>`;
+  $('#hubBack').onclick = renderBaiList;
+  $('#hubAns').onclick = ()=>{ EX.curMaDe = c.maDeList[0]; renderAnswers(); };
+  $('#hubCfg').onclick = ()=> startConfig(b.maBai, b);
+  $('#pdfPick').onclick = ()=> $('#pdfIn').click();
+  $('#pdfIn').onchange = e=>{ const arr = Array.from(e.target.files||[]); e.target.value=''; openPdfWizard(arr, b.maBai, info.count); };
+}
+
+/* >>> UPLOAD-QUEUE */
+const sleep = ms => new Promise(r=>setTimeout(r, ms));
+async function uploadWithRetry(uploadFn, item, data, state){
+  const tries = state.tries || 3;
+  const back = state.backoffMs == null ? 800 : state.backoffMs;
+  for(let t=0; t<tries; t++){
+    if(state.cancel) return false;
+    try{ await uploadFn(item, data); return true; }
+    catch(e){
+      const msg = (e && e.message) || String(e);
+      state.lastError = msg;
+      if(/Phiên đã hết hạn/.test(msg)){ state.authLost = true; state.cancel = true; return false; }
+      if(t === tries-1) return false;
+      await sleep(back*(t+1));
+    }
+  }
+  return false;
+}
+async function runUploadQueue(items, renderFn, uploadFn, state){
+  const conc = state.concurrency || 3;
+  const prog = ()=>{ try{ if(state.onProgress) state.onProgress(); }catch(e){} };
+  const active = new Set();
+  for(const item of items){
+    if(state.cancel) break;
+    while(active.size >= conc) await Promise.race(active);
+    if(state.cancel) break;
+    let data;
+    try{ data = await renderFn(item); }
+    catch(e){ state.failed.push({item, data:null}); state.lastError = 'Không vẽ được trang '+item.name; prog(); continue; }
+    const pr = uploadWithRetry(uploadFn, item, data, state).then(ok=>{
+      if(ok) state.done++; else state.failed.push({item, data});
+      active.delete(pr);
+      prog();
+    });
+    active.add(pr);
+  }
+  await Promise.all(Array.from(active));
+}
+/* <<< UPLOAD-QUEUE */
+
+async function renderPreview(canvas, doc, extra){
+  const page = await doc.getPage(1);
+  const rot = (((page.rotate + extra) % 360) + 360) % 360;
+  const base = page.getViewport({scale:1, rotation:rot});
+  const vp = page.getViewport({scale:260/base.width, rotation:rot});
+  canvas.width = Math.round(vp.width); canvas.height = Math.round(vp.height);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  await page.render({canvasContext:ctx, viewport:vp}).promise;
+}
+
+// Vẽ một trang ra ảnh JPEG ~200 dpi (đúng độ phân giải bản quét gốc), trả về base64
+async function pageToJpegBase64(doc, pageNum, extra){
+  const page = await doc.getPage(pageNum);
+  const rot = (((page.rotate + extra) % 360) + 360) % 360;
+  const base = page.getViewport({scale:1, rotation:rot});
+  let scale = 200/72;
+  const maxPx = 5.5e6;                                   // khổ lớn quá thì hạ bớt, tránh tràn bộ nhớ
+  if(base.width*base.height*scale*scale > maxPx) scale = Math.sqrt(maxPx/(base.width*base.height));
+  const vp = page.getViewport({scale, rotation:rot});
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(vp.width); canvas.height = Math.round(vp.height);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  await page.render({canvasContext:ctx, viewport:vp}).promise;
+  const b64 = canvas.toDataURL('image/jpeg', 0.82).split(',')[1];
+  canvas.width = canvas.height = 0;
+  page.cleanup();
+  return b64;
+}
+
+async function openPdfWizard(fileList, maBai, existing){
+  const files = Array.from(fileList||[]).filter(f=>/\.pdf$/i.test(f.name) || f.type==='application/pdf');
+  if(!files.length){ toast('Hãy chọn file PDF', true); return; }
+  if(typeof pdfjsLib === 'undefined'){ toast('Chưa tải được thư viện đọc PDF. Kiểm tra mạng rồi tải lại trang.', true); return; }
+  overlay('<h2>Đang đọc PDF…</h2><p class="muted">Chờ vài giây</p>', true);
+  const docs = [];
+  try{
+    for(const f of files){
+      const buf = await f.arrayBuffer();
+      const doc = await pdfjsLib.getDocument({data:buf}).promise;
+      docs.push({name:f.name, doc});
+    }
+  }catch(e){ closeOverlay(); toast('Không đọc được PDF: '+((e&&e.message)||e), true); return; }
+  const total = docs.reduce((s,d)=>s+d.doc.numPages, 0);
+  let extra = 0;
+  const list = docs.map(d=>`<li>${esc(d.name)} — ${d.doc.numPages} trang</li>`).join('');
+  const modeHtml = existing>0 ? `
+    <div class="field"><label>Thư mục ảnh đã có ${existing} ảnh:</label>
+      <label style="display:block;color:var(--ink)"><input type="radio" name="pvMode" value="append" checked> Thêm tiếp vào các ảnh đã có</label>
+      <label style="display:block;color:var(--ink)"><input type="radio" name="pvMode" value="replace"> Xóa ảnh cũ, làm lại từ đầu (ảnh cũ vào thùng rác Drive)</label>
+    </div>` : '';
+  overlay(`<h2>Tải bài làm lên</h2>
+    <ul style="margin:0 0 10px;padding-left:18px;font-size:14px">${list}</ul>
+    <p style="font-size:14px;margin:0 0 8px">Tổng <b>${total}</b> trang (mỗi trang một phiếu). Xem phiếu mẫu dưới đây đã đúng chiều chưa:</p>
+    <div style="text-align:center;margin-bottom:8px"><canvas id="pvCanvas" style="max-width:100%;border:1px solid var(--line);border-radius:6px"></canvas></div>
+    <div style="display:flex;gap:8px;justify-content:center;margin-bottom:10px">
+      <button class="btn btn-sm" id="pvL">↺ Xoay trái</button><button class="btn btn-sm" id="pvR">↻ Xoay phải</button></div>
+    ${modeHtml}
+    <div class="row"><button class="btn" id="pvCancel">Hủy</button><button class="btn btn-primary" id="pvGo">Bắt đầu tải lên</button></div>`, true);
+  const cv = $('#pvCanvas');
+  const draw = async ()=>{
+    $('#pvL').disabled = $('#pvR').disabled = true;
+    try{ await renderPreview(cv, docs[0].doc, extra); }catch(e){ toast('Không vẽ được trang xem trước', true); }
+    $('#pvL').disabled = $('#pvR').disabled = false;
+  };
+  await draw();
+  $('#pvL').onclick = ()=>{ extra = (extra+270)%360; draw(); };
+  $('#pvR').onclick = ()=>{ extra = (extra+90)%360; draw(); };
+  $('#pvCancel').onclick = ()=>{ closeOverlay(); docs.forEach(d=>{ try{ d.doc.destroy(); }catch(e){} }); };
+  $('#pvGo').onclick = ()=>{
+    const mode = (document.querySelector('input[name=pvMode]:checked')||{}).value || 'append';
+    startUpload(docs, extra, maBai, existing, mode, total);
+  };
+}
+
+async function startUpload(docs, extra, maBai, existing, mode, total){
+  const state = { cancel:false, done:0, failed:[], onProgress:null, authLost:false, lastError:'' };
+  const ctx = { state, total, maBai, docs, extra };
+  let base = existing;
+  if(mode === 'replace'){
+    overlay('<h2>Đang xóa ảnh cũ…</h2><p class="muted">Chờ chút</p>', true);
+    try{ await apiCall('clearAnh',{maBai}); base = 0; }
+    catch(e){ closeOverlay(); toast(e.message, true); return; }
+  }
+  const items = []; let n = base;
+  docs.forEach(d=>{ for(let p=1; p<=d.doc.numPages; p++){ n++; items.push({doc:d.doc, p, name:'p'+String(n).padStart(4,'0')+'.jpg'}); } });
+  uploadStage(ctx, items);
+}
+
+async function uploadStage(ctx, items){
+  const {state, total, maBai, extra} = ctx;
+  overlay(`<h2>Đang tải ảnh lên</h2>
+    <div class="bar"><div id="barFill"></div></div>
+    <p id="progTxt" style="font-size:14px;margin:0">Chuẩn bị…</p>
+    <p class="muted" style="font-size:13px;margin:6px 0 0">Cứ để cửa sổ này mở, đừng đóng tab.</p>
+    <div class="row"><button class="btn" id="upStop">Dừng</button></div>`, true);
+  $('#upStop').onclick = ()=>{ state.cancel = true; const t=$('#progTxt'); if(t) t.textContent = 'Đang dừng…'; };
+  state.onProgress = ()=>{
+    const fin = state.done + state.failed.length;
+    const f = $('#barFill'), t = $('#progTxt');
+    if(f) f.style.width = Math.round(fin*100/total)+'%';
+    if(t) t.textContent = 'Đã tải '+state.done+'/'+total+' trang' + (state.failed.length ? ' · lỗi '+state.failed.length : '');
+  };
+  state.onProgress();
+  const renderFn = async it => it._data || await pageToJpegBase64(it.doc, it.p, extra);
+  const uploadFn = (it, data) => apiCall('uploadAnh',{maBai, name:it.name, data});
+  await runUploadQueue(items, renderFn, uploadFn, state);
+  await finishUpload(ctx);
+}
+
+async function finishUpload(ctx){
+  const {state, total, maBai, docs} = ctx;
+  let fin = null;
+  try{ fin = await apiCall('finishAnh',{maBai}); }catch(e){}
+  const failed = state.failed.length;
+  let msg;
+  if(state.authLost) msg = 'Phiên đăng nhập đã hết hạn nên dừng giữa chừng. Đăng nhập lại rồi chọn PDF và "Thêm tiếp" cho các trang còn thiếu.';
+  else if(state.cancel) msg = 'Đã dừng. Đã tải '+state.done+'/'+total+' trang.';
+  else if(failed) msg = 'Xong, nhưng '+failed+' trang bị lỗi'+(state.lastError?(' ('+esc(state.lastError)+')'):'')+'. Bấm "Thử lại" để tải nốt.';
+  else msg = 'Đã tải đủ '+state.done+' trang.';
+  let note = '';
+  if(fin && fin.trangThai === 'Sẵn sàng chấm') note = '<p style="font-size:14px;color:var(--ok)">Bài đã đủ đáp án và ảnh: sẵn sàng chấm.'+(fin.emailSent?' Đã gửi email báo.':'')+'</p>';
+  else if(fin && !fin.hasDapAn && !failed && !state.cancel) note = '<p style="font-size:14px" class="muted">Bài chưa có file đáp án: vào "Nhập / sửa đáp án" để sinh file.</p>';
+  overlay(`<h2>Kết quả</h2><p style="font-size:14px">${msg}</p>${note}
+    <div class="row">${(failed && !state.authLost)?'<button class="btn" id="upRetry">Thử lại</button>':''}<button class="btn btn-primary" id="upDone">Xong</button></div>`, true);
+  $('#upDone').onclick = ()=>{ closeOverlay(); docs.forEach(d=>{ try{ d.doc.destroy(); }catch(e){} }); openBai(maBai); };
+  const r = $('#upRetry');
+  if(r) r.onclick = ()=>{
+    const prev = state.failed;
+    state.failed = []; state.cancel = false; state.authLost = false;
+    uploadStage(ctx, prev.map(f=>Object.assign({}, f.item, {_data:f.data})));
+  };
+}
 
 /* ---------- Lớp phủ dùng chung ---------- */
 function overlay(html, noClose){
