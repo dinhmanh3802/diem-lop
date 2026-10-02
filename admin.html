@@ -99,6 +99,9 @@
   .pill.wait{background:#fff4e5;color:var(--warn)}
   .hubcard{padding:16px;margin-bottom:12px;max-width:720px}
   .hubcard h3{font-size:15px}
+  .hubcard.drag{outline:2px dashed var(--primary);background:#f3f7ff}
+  .pvItem{display:flex;gap:12px;align-items:flex-start;padding:8px;border:1px solid var(--line);border-radius:8px;margin-bottom:8px}
+  .pvCv{width:96px;height:auto;border:1px solid var(--line);border-radius:4px;flex:none;background:#fff}
   .bar{height:10px;background:#e7ecf1;border-radius:999px;overflow:hidden;margin:8px 0 10px}
   .bar>div{height:100%;background:var(--primary);width:0;transition:width .2s}
   .issue{display:flex;gap:8px;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}
@@ -573,7 +576,8 @@ function renderConfig(groups){
       <div style="display:flex;align-items:center;gap:12px;margin-top:8px">
         <div>Tổng điểm tối đa: <b id="cfgTotal">0</b> / 10</div>
         <span class="spacer" style="flex:1"></span>
-        <button class="btn btn-primary" id="cfgNext">Tiếp tục nhập đáp án</button>
+        <span class="muted" style="font-size:13px">Đáp án, ảnh phiếu và điểm làm sau ở trang bài, không bắt buộc.</span>
+        <button class="btn btn-primary" id="cfgNext">${EX.bai?'Lưu cấu hình':'Tạo bài'}</button>
       </div>
     </div>`;
   $('#exCancel').onclick = openExams;
@@ -583,7 +587,7 @@ function renderConfig(groups){
   };
   ['p1on','p1n','p1d','p2on','p2n','p2d1','p2d2','p2d3','p2d4','p3on','p3n','p3d'].forEach(id=> $('#'+id).addEventListener('input', recompute));
   recompute();
-  $('#cfgNext').onclick = saveConfigAndGoAnswers;
+  $('#cfgNext').onclick = saveConfig;
 }
 
 function readConfigForm(){
@@ -597,7 +601,7 @@ function readConfigForm(){
   };
 }
 
-async function saveConfigAndGoAnswers(){
+async function saveConfig(){
   EX.cfg = readConfigForm();
   const cacNhom = Array.from(document.querySelectorAll('.exNhom:checked')).map(x=>x.value);
   const tenBai = $('#cfgTen').value.trim();
@@ -605,18 +609,20 @@ async function saveConfigAndGoAnswers(){
   if(!tenBai){ toast('Nhập tên bài', true); return; }
   if(Math.abs(cfgTotal(EX.cfg)-10)>0.01){ toast('Tổng điểm phải bằng 10', true); return; }
   if(!EX.cfg.maDeList.length){ toast('Nhập ít nhất 1 mã đề', true); return; }
+  const btn = $('#cfgNext'), label = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Đang lưu…';
   try{
+    let maBai;
     if(EX.bai){
       await apiCall('updateBai',{maBai:EX.bai.maBai, tenBai, ngay, cacNhom, cauHinh:EX.cfg});
-      EX.bai = await apiCall('getBai',{maBai:EX.bai.maBai});
+      maBai = EX.bai.maBai;
     } else {
       const r = await apiCall('createBai',{tenBai, ngay, cacNhom, cauHinh:EX.cfg});
-      EX.bai = await apiCall('getBai',{maBai:r.maBai});
+      maBai = r.maBai;
     }
-    EX.cfg = EX.bai.cauHinh; EX.ans = EX.bai.dapAn||{};
-    EX.curMaDe = EX.cfg.maDeList[0];
-    renderAnswers();
-  }catch(e){ toast(e.message, true); }
+    toast(EX.bai ? 'Đã lưu cấu hình' : 'Đã tạo bài');
+    openBai(maBai);               // trang bài: đáp án, ảnh, điểm là 3 việc độc lập, làm việc nào trước cũng được
+  }catch(e){ toast(e.message, true); const x = $('#cfgNext'); if(x){ x.disabled = false; x.textContent = label; } }
 }
 
 function ensureAns(md){
@@ -776,11 +782,11 @@ function renderBaiHub(b, info){
       </div>
     </div>
 
-    <div class="card hubcard">
+    <div class="card hubcard" id="dropPdf">
       <h3>2. Bài làm của học sinh (phiếu trả lời)</h3>
-      <p class="muted" style="margin:4px 0 10px">${info.count ? ('Đã có <b>'+info.count+'</b> ảnh trong thư mục ảnh của bài.') : 'Chưa có ảnh nào.'} Chọn file PDF (mỗi trang là một phiếu); web tự chuyển thành ảnh đúng chiều và đưa vào Drive.</p>
+      <p class="muted" style="margin:4px 0 10px">${info.count ? ('Đã có <b>'+info.count+'</b> ảnh trong thư mục ảnh của bài.') : 'Chưa có ảnh nào.'} Mỗi trang PDF là một phiếu. <b>Chọn nhiều file cùng lúc</b> (mỗi lớp một file) hoặc <b>kéo thả</b> vào khung này; web tự chuyển thành ảnh đúng chiều và đưa vào Drive.</p>
       <div class="toolbar" style="margin:0">
-        <button class="btn btn-primary btn-sm" id="pdfPick">Chọn file PDF…</button>
+        <button class="btn btn-primary btn-sm" id="pdfPick">Chọn file PDF (được nhiều file)…</button>
         <input type="file" id="pdfIn" accept="application/pdf,.pdf" multiple class="hidden">
         <span class="spacer"></span>
         <a class="link" href="${esc(info.folderUrl)}" target="_blank">Mở thư mục ảnh trên Drive</a>
@@ -801,6 +807,10 @@ function renderBaiHub(b, info){
   $('#hubCfg').onclick = ()=> startConfig(b.maBai, b);
   $('#pdfPick').onclick = ()=> $('#pdfIn').click();
   $('#pdfIn').onchange = e=>{ const arr = Array.from(e.target.files||[]); e.target.value=''; openPdfWizard(arr, b.maBai, info.count); };
+  const dz = $('#dropPdf');
+  ['dragenter','dragover'].forEach(t=> dz.addEventListener(t, e=>{ e.preventDefault(); dz.classList.add('drag'); }));
+  ['dragleave','drop'].forEach(t=> dz.addEventListener(t, e=>{ e.preventDefault(); dz.classList.remove('drag'); }));
+  dz.addEventListener('drop', e=>{ const arr = Array.from((e.dataTransfer && e.dataTransfer.files) || []); if(arr.length) openPdfWizard(arr, b.maBai, info.count); });
   $('#scorePick').onclick = ()=> $('#scoreIn').click();
   $('#scoreIn').onchange = e=>{ const f = (e.target.files||[])[0]; e.target.value=''; if(f) openScoreImport(f, b); };
   if($('#hubResults')) $('#hubResults').onclick = ()=> openResults(b.maBai);
@@ -846,11 +856,11 @@ async function runUploadQueue(items, renderFn, uploadFn, state){
 }
 /* <<< UPLOAD-QUEUE */
 
-async function renderPreview(canvas, doc, extra){
+async function renderPreview(canvas, doc, extra, width){
   const page = await doc.getPage(1);
   const rot = (((page.rotate + extra) % 360) + 360) % 360;
   const base = page.getViewport({scale:1, rotation:rot});
-  const vp = page.getViewport({scale:260/base.width, rotation:rot});
+  const vp = page.getViewport({scale:(width||260)/base.width, rotation:rot});
   canvas.width = Math.round(vp.width); canvas.height = Math.round(vp.height);
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = '#fff'; ctx.fillRect(0,0,canvas.width,canvas.height);
@@ -878,53 +888,79 @@ async function pageToJpegBase64(doc, pageNum, extra){
 }
 
 async function openPdfWizard(fileList, maBai, existing){
-  const files = Array.from(fileList||[]).filter(f=>/\.pdf$/i.test(f.name) || f.type==='application/pdf');
-  if(!files.length){ toast('Hãy chọn file PDF', true); return; }
   if(typeof pdfjsLib === 'undefined'){ toast('Chưa tải được thư viện đọc PDF. Kiểm tra mạng rồi tải lại trang.', true); return; }
-  overlay('<h2>Đang đọc PDF…</h2><p class="muted">Chờ vài giây</p>', true);
-  const docs = [];
-  try{
+  const items = [];                 // mỗi file PDF: {name, doc, extra = độ xoay thêm}
+  let mode = 'append';
+  const addFiles = async list=>{
+    const files = Array.from(list||[]).filter(f=>/\.pdf$/i.test(f.name) || f.type==='application/pdf');
+    if(!files.length){ toast('Hãy chọn file PDF', true); return; }
     for(const f of files){
-      const buf = await f.arrayBuffer();
-      const doc = await pdfjsLib.getDocument({data:buf}).promise;
-      docs.push({name:f.name, doc});
+      try{
+        const doc = await pdfjsLib.getDocument({data: await f.arrayBuffer()}).promise;
+        items.push({name:f.name, doc, extra:0});
+      }catch(e){ toast('Không đọc được "'+f.name+'": '+((e&&e.message)||e), true); }
     }
-  }catch(e){ closeOverlay(); toast('Không đọc được PDF: '+((e&&e.message)||e), true); return; }
-  const total = docs.reduce((s,d)=>s+d.doc.numPages, 0);
-  let extra = 0;
-  const list = docs.map(d=>`<li>${esc(d.name)} — ${d.doc.numPages} trang</li>`).join('');
-  const modeHtml = existing>0 ? `
-    <div class="field"><label>Thư mục ảnh đã có ${existing} ảnh:</label>
-      <label style="display:block;color:var(--ink)"><input type="radio" name="pvMode" value="append" checked> Thêm tiếp vào các ảnh đã có</label>
-      <label style="display:block;color:var(--ink)"><input type="radio" name="pvMode" value="replace"> Xóa ảnh cũ, làm lại từ đầu (ảnh cũ vào thùng rác Drive)</label>
-    </div>` : '';
-  overlay(`<h2>Tải bài làm lên</h2>
-    <ul style="margin:0 0 10px;padding-left:18px;font-size:14px">${list}</ul>
-    <p style="font-size:14px;margin:0 0 8px">Tổng <b>${total}</b> trang (mỗi trang một phiếu). Xem phiếu mẫu dưới đây đã đúng chiều chưa:</p>
-    <div style="text-align:center;margin-bottom:8px"><canvas id="pvCanvas" style="max-width:100%;border:1px solid var(--line);border-radius:6px"></canvas></div>
-    <div style="display:flex;gap:8px;justify-content:center;margin-bottom:10px">
-      <button class="btn btn-sm" id="pvL">↺ Xoay trái</button><button class="btn btn-sm" id="pvR">↻ Xoay phải</button></div>
-    ${modeHtml}
-    <div class="row"><button class="btn" id="pvCancel">Hủy</button><button class="btn btn-primary" id="pvGo">Bắt đầu tải lên</button></div>`, true);
-  const cv = $('#pvCanvas');
-  const draw = async ()=>{
-    $('#pvL').disabled = $('#pvR').disabled = true;
-    try{ await renderPreview(cv, docs[0].doc, extra); }catch(e){ toast('Không vẽ được trang xem trước', true); }
-    $('#pvL').disabled = $('#pvR').disabled = false;
   };
-  await draw();
-  $('#pvL').onclick = ()=>{ extra = (extra+270)%360; draw(); };
-  $('#pvR').onclick = ()=>{ extra = (extra+90)%360; draw(); };
-  $('#pvCancel').onclick = ()=>{ closeOverlay(); docs.forEach(d=>{ try{ d.doc.destroy(); }catch(e){} }); };
-  $('#pvGo').onclick = ()=>{
-    const mode = (document.querySelector('input[name=pvMode]:checked')||{}).value || 'append';
-    startUpload(docs, extra, maBai, existing, mode, total);
+  overlay('<h2>Đang đọc PDF…</h2><p class="muted">Chờ vài giây</p>', true, true);
+  await addFiles(fileList);
+  if(!items.length){ closeOverlay(); return; }
+
+  const drawThumb = async i=>{
+    const cv = document.querySelector('.pvCv[data-i="'+i+'"]'); if(!cv || !items[i]) return;
+    const btns = document.querySelectorAll('.pvItem[data-i="'+i+'"] .pvL, .pvItem[data-i="'+i+'"] .pvR');
+    btns.forEach(x=>x.disabled = true);
+    try{ await renderPreview(cv, items[i].doc, items[i].extra, 150); }catch(e){ toast('Không vẽ được trang xem trước', true); }
+    btns.forEach(x=>x.disabled = false);
   };
+  const render = ()=>{
+    const total = items.reduce((sum,d)=>sum+d.doc.numPages, 0);
+    const list = items.map((d,i)=>`<div class="pvItem" data-i="${i}">
+        <canvas class="pvCv" data-i="${i}"></canvas>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;font-size:14px;word-break:break-all">${esc(d.name)}</div>
+          <div class="muted" style="font-size:13px">${d.doc.numPages} trang · phiếu đầu tiên hiện bên trái</div>
+          <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn btn-sm pvL">↺ Xoay trái</button><button class="btn btn-sm pvR">↻ Xoay phải</button><button class="btn btn-sm btn-danger pvX">Bỏ file</button></div>
+        </div></div>`).join('');
+    const modeHtml = existing>0 ? `
+      <div class="field"><label>Thư mục ảnh đã có ${existing} ảnh:</label>
+        <label style="display:block;color:var(--ink)"><input type="radio" name="pvMode" value="append"> Thêm tiếp vào các ảnh đã có</label>
+        <label style="display:block;color:var(--ink)"><input type="radio" name="pvMode" value="replace"> Xóa ảnh cũ, làm lại từ đầu (ảnh cũ vào thùng rác Drive)</label>
+      </div>` : '';
+    overlay(`<h2>Tải bài làm lên</h2>
+      <p style="font-size:14px;margin:0 0 10px"><b>${items.length}</b> file · <b>${total}</b> trang (mỗi trang một phiếu). Mỗi file xoay riêng được; kiểm tra phiếu đầu của từng file đã đứng thẳng chưa.</p>
+      ${list}
+      <div style="margin:4px 0 10px"><button class="btn btn-sm" id="pvAdd">+ Thêm file PDF khác</button>
+        <span class="muted" style="font-size:12px">(file nằm ở thư mục khác thì thêm ở đây)</span>
+        <input type="file" id="pvAddIn" accept="application/pdf,.pdf" multiple class="hidden"></div>
+      ${modeHtml}
+      <div class="row"><button class="btn" id="pvCancel">Hủy</button><button class="btn btn-primary" id="pvGo">Bắt đầu tải lên (${total} trang)</button></div>`, true, true);
+    items.forEach((_,i)=> drawThumb(i));
+    document.querySelectorAll('.pvItem').forEach(el=>{
+      const i = +el.dataset.i;
+      el.querySelector('.pvL').onclick = ()=>{ items[i].extra = (items[i].extra+270)%360; drawThumb(i); };
+      el.querySelector('.pvR').onclick = ()=>{ items[i].extra = (items[i].extra+90)%360; drawThumb(i); };
+      el.querySelector('.pvX').onclick = ()=>{
+        const x = items.splice(i,1)[0]; try{ x.doc.destroy(); }catch(e){}
+        if(!items.length) closeOverlay(); else render();
+      };
+    });
+    $('#pvAdd').onclick = ()=> $('#pvAddIn').click();
+    $('#pvAddIn').onchange = async e=>{
+      const arr = Array.from(e.target.files||[]); e.target.value = '';
+      const bt = $('#pvAdd'); bt.disabled = true; bt.textContent = 'Đang đọc…';
+      await addFiles(arr); render();
+    };
+    document.querySelectorAll('input[name=pvMode]').forEach(r=>{ r.checked = (r.value === mode); r.onchange = ()=>{ mode = r.value; }; });
+    $('#pvCancel').onclick = ()=>{ closeOverlay(); items.forEach(d=>{ try{ d.doc.destroy(); }catch(e){} }); };
+    $('#pvGo').onclick = ()=> startUpload(items, maBai, existing, mode, total);
+  };
+  render();
 }
 
-async function startUpload(docs, extra, maBai, existing, mode, total){
+async function startUpload(docs, maBai, existing, mode, total){
   const state = { cancel:false, done:0, failed:[], onProgress:null, authLost:false, lastError:'' };
-  const ctx = { state, total, maBai, docs, extra };
+  const ctx = { state, total, maBai, docs };
   let base = existing;
   if(mode === 'replace'){
     overlay('<h2>Đang xóa ảnh cũ…</h2><p class="muted">Chờ chút</p>', true);
@@ -932,12 +968,12 @@ async function startUpload(docs, extra, maBai, existing, mode, total){
     catch(e){ closeOverlay(); toast(e.message, true); return; }
   }
   const items = []; let n = base;
-  docs.forEach(d=>{ for(let p=1; p<=d.doc.numPages; p++){ n++; items.push({doc:d.doc, p, name:'p'+String(n).padStart(4,'0')+'.jpg'}); } });
+  docs.forEach(d=>{ for(let p=1; p<=d.doc.numPages; p++){ n++; items.push({doc:d.doc, p, extra:d.extra, name:'p'+String(n).padStart(4,'0')+'.jpg'}); } });
   uploadStage(ctx, items);
 }
 
 async function uploadStage(ctx, items){
-  const {state, total, maBai, extra} = ctx;
+  const {state, total, maBai} = ctx;
   overlay(`<h2>Đang tải ảnh lên</h2>
     <div class="bar"><div id="barFill"></div></div>
     <p id="progTxt" style="font-size:14px;margin:0">Chuẩn bị…</p>
@@ -951,7 +987,7 @@ async function uploadStage(ctx, items){
     if(t) t.textContent = 'Đã tải '+state.done+'/'+total+' trang' + (state.failed.length ? ' · lỗi '+state.failed.length : '');
   };
   state.onProgress();
-  const renderFn = async it => it._data || await pageToJpegBase64(it.doc, it.p, extra);
+  const renderFn = async it => it._data || await pageToJpegBase64(it.doc, it.p, it.extra);
   const uploadFn = (it, data) => apiCall('uploadAnh',{maBai, name:it.name, data});
   await runUploadQueue(items, renderFn, uploadFn, state);
   await finishUpload(ctx);
