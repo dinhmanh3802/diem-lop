@@ -4,7 +4,8 @@
 'use strict';
 
 var App = window.App = window.App || {};
-App.version = '5.0.0';
+App.version = '6.0.0';
+App.ten = 'Vật Lý Cô Lâm Cường';
 
 /* ---------------- DOM, định dạng ---------------- */
 function $(s, r) { return (r || document).querySelector(s); }
@@ -61,7 +62,8 @@ var ICONS = {
   file: 'M6 3h9l4 4v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zM14 3v5h5',
   layers: 'M12 3l9 5-9 5-9-5zM3 13l9 5 9-5M3 17.5 12 22.5 21 17.5',
   bubble: 'M12 20a8 8 0 1 0 0-16 8 8 0 0 0 0 16z',
-  sparkle: 'M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6'
+  sparkle: 'M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6',
+  calendar: 'M4 6h16v14H4zM4 10h16M8 3v4M16 3v4M8 14h3'
 };
 function icon(name, cls) {
   var d = ICONS[name] || ICONS.bubble;
@@ -78,7 +80,7 @@ var Session = {
 };
 
 /* ---------------- gọi máy chủ ---------------- */
-var READ_ACTIONS = { ping: 1, bootstrap: 1, listGroups: 1, listStudents: 1, listBai: 1, getBai: 1, getBaiFull: 1, anhInfo: 1, getKetQua: 1,
+var READ_ACTIONS = { ddTongQuan: 1, ddPhanTich: 1, ddXemBuoi: 1, ping: 1, bootstrap: 1, listGroups: 1, listStudents: 1, listBai: 1, getBai: 1, getBaiFull: 1, anhInfo: 1, getKetQua: 1,
   getNhatKy: 1, thongKeBai: 1, listUsers: 1, getCaiDat: 1, listGopY: 1, trangThaiTuDong: 1, publicConfig: 1, traDiem: 1, chiTietBai: 1, nhatKyLoi: 1, validateRoster: 1 };
 
 function ApiError(code, message) { var e = new Error(message); e.code = code; return e; }
@@ -126,6 +128,7 @@ var Api = (function () {
           }
           throw err;
         }
+        if (!READ_ACTIONS[action]) invalidate();
         return j.data;
       } catch (e) {
         var isNet = (e && e.name === 'AbortError') || (e instanceof TypeError);
@@ -165,7 +168,19 @@ var Api = (function () {
     Object.keys(cache).forEach(function (k) { if (!prefix || k.indexOf(prefix) === 0) delete cache[k]; });
     try { Object.keys(sessionStorage).forEach(function (k) { if (k.indexOf('sd_c_') === 0 && (!prefix || k.indexOf('sd_c_' + prefix) === 0)) sessionStorage.removeItem(k); }); } catch (e) {}
   }
-  return { call: call, swr: swr, invalidate: invalidate };
+  /** Tải trước (khi rê chuột / chạm vào liên kết) để lúc mở trang có dữ liệu ngay */
+  function prefetch(action, params) {
+    var key = action + ':' + JSON.stringify(params || {});
+    if (cache[key] && Date.now() - cache[key].t < 60000) return;
+    if (prefetch._busy[key]) return;
+    prefetch._busy[key] = 1;
+    call(action, params, { silent: true }).then(function (d) {
+      var s = JSON.stringify(d); cache[key] = { t: Date.now(), d: d, s: s };
+      try { sessionStorage.setItem('sd_c_' + key, JSON.stringify(cache[key])); } catch (e) {}
+    }).catch(function () {}).then(function () { delete prefetch._busy[key]; });
+  }
+  prefetch._busy = {};
+  return { call: call, swr: swr, invalidate: invalidate, prefetch: prefetch };
 })();
 
 /* ---------------- thông báo ---------------- */
@@ -407,3 +422,45 @@ App.Api = Api; App.Session = Session; App.Modal = Modal;
 
 /* các liên kết href="javascript:void 0" chỉ để bấm: không điều hướng */
 document.addEventListener('click', function (e) { var a = e.target.closest && e.target.closest('a[href^="javascript:"]'); if (a) e.preventDefault(); }, true);
+
+/* ---------------- nhãn: giá trị (trình bày tách bạch) ----------------
+   kv([['Hạng', '3/33'], ['Điểm TB lớp', '7,28']]) -> "Hạng: 3/33" với giá trị in đậm.
+   Phần tử thứ 3 là lớp CSS thêm cho giá trị; thứ 4 = true nếu giá trị đã là HTML. */
+function kv(items, cls) {
+  return '<dl class="kv ' + (cls || '') + '">' + items.filter(function (x) { return x && x[1] !== null && x[1] !== undefined && x[1] !== ''; }).map(function (x) {
+    return '<div><dt>' + esc(x[0]) + '</dt><dd' + (x[2] ? ' class="' + x[2] + '"' : '') + '>' + (x[3] ? x[1] : esc(x[1])) + '</dd></div>';
+  }).join('') + '</dl>';
+}
+
+/* ---------------- bung bong bóng ăn mừng (điểm cao, gửi điểm danh, công bố) ---------------- */
+function celebrate(x, y, n) {
+  if (reduceMotion || !document.body) return;
+  var cv = document.createElement('canvas'), dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:130';
+  cv.width = innerWidth * dpr; cv.height = innerHeight * dpr;
+  document.body.appendChild(cv);
+  var g = cv.getContext && cv.getContext('2d');
+  if (!g || !g.arc) { cv.remove(); return; }
+  g.scale(dpr, dpr);
+  x = x === undefined ? innerWidth / 2 : x; y = y === undefined ? innerHeight / 3 : y;
+  var colors = ['#2346C8', '#6D4AFF', '#16B5C9', '#16855B', '#F2B544', '#23262B'], ps = [];
+  for (var i = 0; i < (n || 46); i++) {
+    var a = Math.random() * Math.PI * 2, sp = 3 + Math.random() * 7;
+    ps.push({ x: x, y: y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 4, r: 3 + Math.random() * 7, c: colors[i % colors.length], ring: Math.random() < .35, life: 1 });
+  }
+  var t0 = performance.now();
+  (function frame(now) {
+    var k = (now - t0) / 1200;
+    g.clearRect(0, 0, innerWidth, innerHeight);
+    ps.forEach(function (p) {
+      p.vy += .22; p.vx *= .985; p.x += p.vx; p.y += p.vy; p.life = Math.max(0, 1 - k);
+      g.globalAlpha = p.life; g.beginPath(); g.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      if (p.ring) { g.lineWidth = 2; g.strokeStyle = p.c; g.stroke(); } else { g.fillStyle = p.c; g.fill(); }
+    });
+    if (k < 1) requestAnimationFrame(frame); else cv.remove();
+  })(t0);
+}
+function celebrateAt(el) { if (!el || !el.getBoundingClientRect) return celebrate(); var r = el.getBoundingClientRect(); celebrate(r.left + r.width / 2, r.top + r.height / 2); }
+
+/* ---------------- đánh thức máy chủ sớm (Apps Script "ngủ" thì lượt gọi đầu chậm) ---------------- */
+function warmUp() { try { Api.call('ping', {}, { silent: true, noAuth: true, retry: 0 }).catch(function () {}); } catch (e) {} }

@@ -1,7 +1,7 @@
 {
-  "name": "Tra điểm lớp học thêm",
-  "short_name": "Tra điểm",
-  "description": "Nhập số báo danh để xem điểm và từng câu sai.",
+  "name": "Vật Lý Cô Lâm Cường",
+  "short_name": "Vật Lý Cô Cường",
+  "description": "Hệ thống quản lý điểm và chuyên cần của lớp học Vật Lý Cô Lâm Cường.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
@@ -10,8 +10,21 @@
   "theme_color": "#2346C8",
   "lang": "vi",
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }

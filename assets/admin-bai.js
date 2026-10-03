@@ -220,9 +220,9 @@ async function screenBaiHub(params) {
   var v = V(), id = params.id, local = findBaiLocal(id);
   if (local) swap(v, '<div class="page"><a class="back" href="#/bai">' + icon('chevL') + 'Bài kiểm tra</a><div class="page-head"><div class="titles"><h1>' + esc(local.tenBai) + '</h1><div class="sub">Đang tải…</div></div></div><div class="grid grid-2"><div class="sk sk-block"></div><div class="sk sk-block"></div><div class="sk sk-block"></div><div class="sk sk-block"></div></div></div>');
   else swap(v, skPage());
-  var b;
-  try { b = await Api.call('getBaiFull', { maBai: id }); }
+  try { await Api.swr('getBaiFull', { maBai: id }, function (data) { if (Router.cur === '/bai/' + id) renderHub(data); }); }
   catch (e) { swap(v, '<div class="page"><a class="back" href="#/bai">' + icon('chevL') + 'Bài kiểm tra</a>' + emptyState('alert', 'Không mở được bài', e.message) + '</div>'); return; }
+  function renderHub(b) {
   App.cur = { bai: b };
   var cfg = b.cauHinh, mas = cfg.maDeList || [];
   var fill = mas.map(function (m) { return keyFilled(cfg, b.dapAn[m]); }), doneMa = fill.filter(function (f) { return f.done; }).length;
@@ -231,7 +231,7 @@ async function screenBaiHub(params) {
   var step = function (cls, label, sub) { return '<div class="step ' + cls + '"><span class="bubble">' + (cls.indexOf('done') !== -1 ? icon('check') : '') + '</span><div>' + label + '<div class="small muted" style="font-weight:400">' + sub + '</div></div></div>'; };
   swap(v, '<div class="page"><a class="back" href="#/bai">' + icon('chevL') + 'Bài kiểm tra</a>' +
     '<div class="page-head"><div class="titles"><h1>' + esc(b.tenBai) + ' ' + trangThaiBadge({ luuTru: b.luuTru, trangThai: b.trangThai, soKetQua: b.soKetQua }) + '</h1>' +
-    '<div class="sub">' + (b.ngay ? fmtDate(b.ngay) + ', ' : '') + (b.cacNhom.length ? 'nhóm ' + b.cacNhom.map(esc).join(', ') : 'chưa chọn nhóm') + ', ' + mas.length + ' mã đề' + (isAdmin() ? ', giáo viên ' + esc(b.teacher) : '') + '</div></div>' +
+    kv([['Ngày kiểm tra', fmtDate(b.ngay)], ['Nhóm', b.cacNhom.length ? b.cacNhom.join(', ') : 'chưa chọn'], ['Số mã đề', mas.length], isAdmin() ? ['Giáo viên', b.teacher] : null]) + '</div>' +
     '<div class="menu"><button class="btn" id="hMore">' + icon('more') + '<span>Thêm</span></button></div></div>' +
     '<div class="steps">' +
     step(keysOk || b.dapAnFile ? 'done' : (doneMa ? 'now' : ''), 'Đáp án', b.dapAnFile ? 'đã có file' : doneMa + '/' + mas.length + ' mã đủ') +
@@ -286,6 +286,7 @@ async function screenBaiHub(params) {
   $('#hScore').onclick = function () { $('#hScoreIn').click(); };
   $('#hScoreIn').onchange = function (e) { var f = (e.target.files || [])[0]; e.target.value = ''; if (f && window.openScoreImport) window.openScoreImport(f, b); };
   $('#hPub').onclick = function () { togglePublishBai(this, b, function () { screenBaiHub(params); }); };
+  }
 }
 
 async function togglePublishBai(btn, b, after) {

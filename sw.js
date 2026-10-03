@@ -1,7 +1,7 @@
 /* Lưu sẵn giao diện để trang tra điểm mở nhanh và vẫn mở được khi mạng chập chờn.
    Đổi số phiên bản này mỗi khi cập nhật giao diện. Không bao giờ lưu dữ liệu điểm (gọi máy chủ luôn đi thẳng). */
-const VERSION = 'sodiem-5.0.0';
-const SHELL = ['./', './index.html', './manifest.webmanifest', './assets/app.css?v=5.0.0', './assets/core.js?v=5.0.0', './assets/public.js?v=5.0.0', './icons/icon-192.png', './icons/favicon.svg'];
+const VERSION = 'vlcoclamcuong-6.0.0';
+const SHELL = ['./', './index.html', './manifest.webmanifest', './assets/app.css?v=6.0.0', './assets/core.js?v=6.0.0', './assets/public.js?v=6.0.0', './icons/icon-192.png', './icons/favicon.svg'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(VERSION).then(c => Promise.all(SHELL.map(u => c.add(u).catch(() => null)))).then(() => self.skipWaiting()));

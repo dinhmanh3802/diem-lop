@@ -160,7 +160,7 @@ function drawResults() {
     (d.orphan.length ? '<button data-t="*" class="' + (tab === '*' ? 'active' : '') + '">Khác<span class="n">' + d.orphan.length + '</span></button>' : '');
   var g = d.groups.find(function (x) { return x.maNhom === tab; });
   var head = '<div class="page"><a class="back" href="#/bai/' + esc(b.maBai) + '">' + icon('chevL') + esc(b.tenBai) + '</a>' +
-    '<div class="page-head"><div class="titles"><h1>Kết quả ' + (pub ? '<span class="badge ok">Đã công bố</span>' : '<span class="badge">Chưa công bố</span>') + '</h1><div class="sub">' + esc(b.tenBai) + (b.ngay ? ', ' + fmtDate(b.ngay) : '') + '</div></div>' +
+    '<div class="page-head"><div class="titles"><h1>Kết quả ' + (pub ? '<span class="badge ok">Đã công bố</span>' : '<span class="badge">Chưa công bố</span>') + '</h1>' + kv([['Bài', b.tenBai], ['Ngày kiểm tra', fmtDate(b.ngay)]]) + '</div>' +
     '<div class="row"><a class="btn" href="#/bai/' + esc(b.maBai) + '/thong-ke">' + icon('chart') + '<span>Thống kê</span></a>' +
     '<div class="menu"><button class="btn" id="rMore">' + icon('download') + '<span>Xuất</span></button></div>' +
     '<button class="btn ' + (pub ? '' : 'btn-primary') + '" id="rPub">' + icon(pub ? 'eyeOff' : 'eye') + '<span>' + (pub ? 'Ẩn điểm' : 'Công bố') + '</span></button></div></div>' +
@@ -396,7 +396,7 @@ async function screenStats(params) {
       t.xuHuong.map(function (x) { return '<tr style="' + (x.laBaiNay ? 'font-weight:700;background:var(--blue-soft)' : '') + '"><td>' + esc(x.tenBai) + '<div class="small muted">' + fmtDate(x.ngay) + '</div></td>' + Object.keys(mas).sort().map(function (m) { return '<td class="r num">' + fmtScore(x.tbNhom[m]) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>';
   };
   swap(v, '<div class="page"><a class="back" href="#/bai/' + esc(id) + '">' + icon('chevL') + esc(t.bai.tenBai) + '</a>' +
-    '<div class="page-head"><div class="titles"><h1>Thống kê</h1><div class="sub">' + esc(t.bai.tenBai) + (t.bai.ngay ? ', ' + fmtDate(t.bai.ngay) : '') + '. Để biết chữa câu nào, bổ túc cho em nào.</div></div>' +
+    '<div class="page-head"><div class="titles"><h1>Thống kê</h1>' + kv([['Bài', t.bai.tenBai], ['Ngày kiểm tra', fmtDate(t.bai.ngay)], ['Số bài làm', t.tongQuan.n]]) + '</div>' +
     '<a class="btn" href="#/bai/' + esc(id) + '/ket-qua">' + icon('sheet') + '<span>Bảng điểm</span></a></div>' +
     '<div class="grid grid-4 stagger" style="margin-bottom:16px">' +
     '<div class="kpi blue"><div class="v num" data-c="' + (TQ.tb || 0) + '">0</div><div class="l">điểm trung bình (' + TQ.n + ' em)</div></div>' +

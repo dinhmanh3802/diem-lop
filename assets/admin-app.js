@@ -25,6 +25,7 @@ var Router = {
       if (!ok) { history.replaceState(null, '', '#' + Router.cur); return; }
       Router.guard = null;
     }
+    if (App.state.user && App.state.user.role === 'loptruong' && path.indexOf('/diem-danh') !== 0) { history.replaceState(null, '', '#/diem-danh'); path = '/diem-danh'; }   // lớp trưởng chỉ dùng điểm danh
     Router.cur = path;
     Modal.closeAll();
     if (!document.getElementById('view')) return;           // đang ở màn đăng nhập: không vẽ trang
@@ -57,7 +58,7 @@ App.onAuthLost = function () {
 async function boot() {
   offlineBanner();
   if (!(window.APP_CONFIG && /^https?:\/\//.test(window.APP_CONFIG.API_URL || ''))) {
-    document.getElementById('root').innerHTML = '<div class="login"><div class="login-card"><div class="brand"><i class="mark"></i>Sổ điểm</div><h1>Chưa kết nối máy chủ</h1>' +
+    document.getElementById('root').innerHTML = '<div class="login"><div class="login-card"><div class="brand"><i class="mark"></i>Vật Lý Cô Lâm Cường</div><h1>Chưa kết nối máy chủ</h1>' +
       '<p class="muted" style="margin:8px 0 0">Mở file <b>config.js</b> trên GitHub và dán địa chỉ web app (Apps Script) vào <b>API_URL</b>. Xem hướng dẫn cài đặt.</p></div></div>';
     return;
   }
@@ -70,7 +71,7 @@ async function loadShell() {
   if (!$('.app')) root.innerHTML = '<div class="main"><div id="view">' + skPage() + '</div></div>';
   try {
     var b = await Api.call('bootstrap');
-    Object.assign(App.state, { user: b.user, groups: b.groups || [], bai: b.bai || [], caiDat: b.caiDat || {}, gopYMoi: b.gopYMoi || 0 });
+    Object.assign(App.state, { user: b.user, groups: b.groups || [], bai: b.bai || [], caiDat: b.caiDat || {}, gopYMoi: b.gopYMoi || 0, ddChoDuyet: b.ddChoDuyet || 0, lt: b.laLopTruong ? { maNhom: b.maNhom, tenNhom: b.tenNhom } : null });
     var u = Session.user() || {};
     Session.set(Session.token(), Object.assign(u, b.user));
     renderShell();
@@ -85,9 +86,11 @@ async function loadShell() {
 }
 
 function navItems() {
+  if (App.state.user && App.state.user.role === 'loptruong') return [{ key: 'diem-danh', href: '#/diem-danh', ico: 'check', label: 'Điểm danh' }];
   var a = [
     { key: '', href: '#/', ico: 'home', label: 'Tổng quan' },
     { key: 'bai', href: '#/bai', ico: 'sheet', label: 'Bài kiểm tra' },
+    { key: 'diem-danh', href: '#/diem-danh', ico: 'check', label: 'Điểm danh', count: App.state.ddChoDuyet },
     { key: 'lop', href: '#/lop', ico: 'users', label: 'Lớp và học sinh' }
   ];
   if (isAdmin()) a.push({ key: 'tai-khoan', href: '#/tai-khoan', ico: 'key', label: 'Tài khoản' },
@@ -102,15 +105,15 @@ function renderShell() {
   var nav = items.map(function (n) {
     return '<a class="nav-item" data-nav="' + n.key + '" href="' + n.href + '">' + icon(n.ico) + '<span>' + esc(n.label) + '</span>' + (n.count ? '<b class="count">' + n.count + '</b>' : '') + '</a>';
   }).join('');
-  var tabs = items.slice(0, 3).map(function (n) {
-    return '<a data-nav="' + n.key + '" href="' + n.href + '">' + icon(n.ico) + '<span>' + esc(n.label.split(' ')[0] === 'Lớp' ? 'Lớp' : n.label.replace('Bài kiểm tra', 'Bài')) + '</span></a>';
+  var tabs = items.slice(0, items.length > 3 ? 3 : items.length).map(function (n) {
+    return '<a data-nav="' + n.key + '" href="' + n.href + '">' + icon(n.ico) + '<span>' + esc(n.label.split(' ')[0] === 'Lớp' ? 'Lớp' : n.label.replace('Bài kiểm tra', 'Bài')) + '</span>' + (n.count ? '<i class="dot"></i>' : '') + '</a>';
   }).join('') + '<a href="javascript:void 0" id="tabMore">' + icon('more') + '<span>Thêm</span>' + (App.state.gopYMoi ? '<i class="dot"></i>' : '') + '</a>';
   document.getElementById('root').innerHTML =
     '<div class="app">' +
-    '<aside class="side"><div class="brand"><i class="mark"></i>Sổ điểm</div>' + nav + '<div class="spacer"></div>' +
+    '<aside class="side">' + '<div class="brand"><span class="b1"><i class="mark"></i>Vật Lý Cô Lâm Cường</span><span class="b2">Hệ thống quản lý học tập</span></div>' + nav + '<div class="spacer"></div>' +
     '<div class="who"><div class="avatar">' + esc(initials(u.fullName || u.username)) + '</div><div class="grow"><div style="font-weight:600">' + esc(u.fullName || u.username) + '</div>' +
-    '<div class="small muted">' + (u.role === 'admin' ? 'Quản trị' : 'Giáo viên') + '</div></div><div class="menu"><button class="btn btn-ghost btn-icon btn-sm" id="userMenu" aria-label="Tài khoản">' + icon('more') + '</button></div></div></aside>' +
-    '<header class="topbar-m"><div class="brand"><i class="mark"></i>Sổ điểm</div><div class="menu"><button class="avatar" id="userMenuM" style="border:0;cursor:pointer" aria-label="Tài khoản">' + esc(initials(u.fullName || u.username)) + '</button></div></header>' +
+    '<div class="small muted">' + (u.role === 'admin' ? 'Quản trị' : u.role === 'loptruong' ? 'Lớp trưởng' : 'Giáo viên') + '</div></div><div class="menu"><button class="btn btn-ghost btn-icon btn-sm" id="userMenu" aria-label="Tài khoản">' + icon('more') + '</button></div></div></aside>' +
+    '<header class="topbar-m"><div class="brand"><i class="mark"></i>Vật Lý Cô Lâm Cường</div><div class="menu"><button class="avatar" id="userMenuM" style="border:0;cursor:pointer" aria-label="Tài khoản">' + esc(initials(u.fullName || u.username)) + '</button></div></header>' +
     '<main class="main"><div id="view"></div></main>' +
     '<nav class="tabbar">' + tabs + '</nav></div>';
   var menu = function (anchor) {
@@ -159,8 +162,8 @@ async function logout() {
 function showLogin() {
   var root = document.getElementById('root');
   root.innerHTML = '<div class="login"><form class="login-card" id="loginForm" novalidate>' +
-    '<div class="brand"><i class="mark"></i>Sổ điểm</div>' +
-    '<h1>Đăng nhập</h1><p class="muted" style="margin-bottom:20px">Dành cho giáo viên và quản trị. Học sinh xem điểm ở <a href="index.html">trang tra điểm</a>.</p>' +
+    '<div class="brand"><i class="mark"></i><span style="background:var(--ink-grad);-webkit-background-clip:text;background-clip:text;color:transparent;font-weight:800">Vật Lý Cô Lâm Cường</span></div>' +
+    '<h1>Đăng nhập</h1><p class="muted" style="margin-bottom:20px">Hệ thống quản lý học tập lớp Vật Lý Cô Lâm Cường, dành cho cô và lớp trưởng. Học sinh, phụ huynh xem điểm ở <a href="index.html">trang tra điểm</a>.</p>' +
     '<div class="stack"><div class="field"><label for="lu">Tài khoản</label><input class="input" id="lu" autocomplete="username" autocapitalize="off" spellcheck="false" required></div>' +
     '<div class="field"><label for="lp">Mật khẩu</label><div style="position:relative"><input class="input" id="lp" type="password" autocomplete="current-password" required style="padding-right:46px">' +
     '<button type="button" class="btn btn-ghost btn-icon btn-sm" id="lpEye" aria-label="Hiện mật khẩu" style="position:absolute;right:5px;top:5px">' + icon('eye') + '</button></div>' +
@@ -170,6 +173,7 @@ function showLogin() {
     '<button type="button" class="btn btn-ghost" id="lforgot"><span>Quên mật khẩu?</span></button></div></form></div>';
   var f = $('#loginForm'), err = $('#lerr');
   $('#lu').focus();
+  warmUp();
   $('#lpEye').onclick = function () { var p = $('#lp'), s = p.type === 'password'; p.type = s ? 'text' : 'password'; this.innerHTML = icon(s ? 'eyeOff' : 'eye'); };
   $('#lp').addEventListener('keyup', function (e) { $('#lcaps').classList.toggle('hidden', !(e.getModifierState && e.getModifierState('CapsLock'))); });
   $('#lforgot').onclick = function () { forgotModal($('#lu').value.trim()); };
@@ -270,8 +274,8 @@ async function screenHome() {
     chuaCongBo.forEach(function (b) { todo.push({ b: b, ico: 'eye', cls: 'blue', t: 'Đã có điểm, chưa công bố', href: '#/bai/' + b.maBai + '/ket-qua' }); });
     chuaDiem.slice(0, 5).forEach(function (b) { todo.push({ b: b, ico: 'upload', cls: '', t: 'Chưa nhập điểm', href: '#/bai/' + b.maBai }); });
     swap(v, '<div class="page">' +
-      '<div class="page-head"><div class="titles"><h1>' + greet() + ', ' + esc(S.user.fullName || S.user.username) + '</h1><div class="sub">' + (bai.length ? 'Đang có ' + bai.length + ' bài kiểm tra.' : 'Chưa có bài kiểm tra nào.') + '</div></div>' +
-      (isAdmin() ? '' : '<a class="btn btn-primary" href="#/bai/moi">' + icon('plus') + '<span>Tạo bài mới</span></a>') + '</div>' +
+      '<div class="hero"><div class="row" style="align-items:flex-end"><div class="grow"><h1>' + greet() + ', ' + esc(S.user.fullName || S.user.username) + '</h1><div class="sub">Hệ thống quản lý học tập lớp Vật Lý Cô Lâm Cường. ' + (bai.length ? 'Đang có ' + bai.length + ' bài kiểm tra.' : 'Chưa có bài kiểm tra nào.') + '</div></div>' +
+      (isAdmin() ? '' : '<a class="btn btn-primary" href="#/bai/moi">' + icon('plus') + '<span>Tạo bài mới</span></a><a class="btn" href="#/diem-danh" style="background:rgba(255,255,255,.16);color:#fff;border-color:rgba(255,255,255,.35)">' + icon('check') + '<span>Điểm danh</span></a>') + '</div></div>' +
       '<div class="grid grid-4 stagger" style="margin-bottom:18px">' +
       '<a class="kpi kpi-link" href="#/bai"><div class="v" data-n="' + bai.length + '">0</div><div class="l">Bài đang có</div></a>' +
       '<a class="kpi kpi-link ' + (cho ? 'amber' : '') + '" href="#/bai"><div class="v" data-n="' + cho + '">0</div><div class="l">Dòng điểm chờ xử lý</div></a>' +
@@ -300,8 +304,7 @@ function trangThaiBadge(b) {
 }
 function baiItemHtml(b) {
   return '<a class="item" href="#/bai/' + esc(b.maBai) + '"><div class="grow"><div class="t">' + esc(b.tenBai) + '</div>' +
-    '<div class="s">' + (b.ngay ? fmtDate(b.ngay) + ', ' : '') + (b.cacNhom.length ? 'nhóm ' + b.cacNhom.map(esc).join(', ') : 'chưa chọn nhóm') +
-    (isAdmin() ? ', ' + esc(b.teacher) : '') + (b.soKetQua ? ', ' + b.soKetQua + ' kết quả' : '') + '</div></div>' +
+    '<div class="s">' + kv([['Ngày', fmtDate(b.ngay)], ['Nhóm', b.cacNhom.length ? b.cacNhom.join(', ') : 'chưa chọn'], isAdmin() ? ['Giáo viên', b.teacher] : null, b.soKetQua ? ['Kết quả', b.soKetQua + ' em'] : null]) + '</div></div>' +
     '<div class="right">' + (b.soChoXuLy ? '<span class="badge warn">' + b.soChoXuLy + ' chờ</span>' : '') + trangThaiBadge(b) + icon('chevR', 'chev') + '</div></a>';
 }
 
@@ -582,10 +585,13 @@ async function screenSettings() {
     '<div class="field"><label>Lời nhắn dưới tên</label><textarea class="input" id="s_loiNhanTraDiem">' + esc(c.loiNhanTraDiem) + '</textarea></div>' +
     '<label class="switch"><input type="checkbox" id="s_hienThiThuHang" ' + (c.hienThiThuHang ? 'checked' : '') + '><span class="track"></span><span>Hiện thứ hạng trong nhóm</span></label>' +
     '<label class="switch"><input type="checkbox" id="s_hienDiemTB" ' + (c.hienDiemTB ? 'checked' : '') + '><span class="track"></span><span>Hiện điểm trung bình của nhóm</span></label>' +
+    '<label class="switch"><input type="checkbox" id="s_hienDiemCaoNhat" ' + (c.hienDiemCaoNhat ? 'checked' : '') + '><span class="track"></span><span>Hiện điểm cao nhất của lớp</span></label>' +
+    '<label class="switch"><input type="checkbox" id="s_hienChuyenCan" ' + (c.hienChuyenCan ? 'checked' : '') + '><span class="track"></span><span>Cho phụ huynh, học sinh xem chuyên cần</span></label>' +
     '<label class="switch"><input type="checkbox" id="s_choPhepGopY" ' + (c.choPhepGopY ? 'checked' : '') + '><span class="track"></span><span>Cho gửi góp ý từ trang tra điểm</span></label>' +
     '<a class="btn btn-sm" href="' + esc(pub) + '" target="_blank" style="align-self:flex-start">' + icon('link') + '<span>Mở trang tra điểm</span></a></div>' +
     '<div class="stack">' +
     '<div class="panel stack"><h3>Thông báo</h3><div class="field"><label>Email nhận thông báo</label><input class="input" id="s_emailNhanThongBao" type="email" value="' + esc(c.emailNhanThongBao) + '"><div class="hint">Nhận email khi có ảnh phiếu mới và khi có góp ý.</div></div></div>' +
+    '<div class="panel stack"><h3>Chuyên cần</h3><div class="field"><label>Ngưỡng chuyên cần (%)</label><input class="input" id="s_nguongChuyenCan" type="number" min="0" max="100" value="' + esc(c.nguongChuyenCan) + '"><div class="hint">Em đi học dưới tỉ lệ này được đánh dấu cần chú ý.</div></div></div>' +
     '<div class="panel stack"><h3>Thống kê</h3><div class="field"><label>Ngưỡng điểm cần bổ túc</label><input class="input" id="s_nguongBoTuc" type="number" min="0" max="10" step="0.5" value="' + esc(c.nguongBoTuc) + '"><div class="hint">Em có điểm dưới mức này hiện trong danh sách cần bổ túc.</div></div></div>' +
     '<div class="panel stack"><h3>Dọn dẹp tự động</h3><div class="field"><label>Giữ ảnh phiếu bao nhiêu ngày sau khi công bố</label><input class="input" id="s_soNgayGiuAnh" type="number" min="1" max="365" value="' + esc(c.soNgayGiuAnh) + '"></div>' +
     '<div class="row"><span id="autoState">' + (auto.daBat ? '<span class="badge ok">Đang bật, chạy mỗi ngày lúc 2 giờ sáng</span>' : '<span class="badge warn">Chưa bật</span>') + '</span>' +
@@ -593,8 +599,8 @@ async function screenSettings() {
     '</div></div><p class="small muted" style="margin-top:18px">Phiên bản ' + App.version + '</p></div>');
   $('#sSave').onclick = function () {
     var vals = {};
-    ['tenHienThi', 'loiNhanTraDiem', 'emailNhanThongBao', 'nguongBoTuc', 'soNgayGiuAnh'].forEach(function (k) { vals[k] = $('#s_' + k).value; });
-    ['hienThiThuHang', 'hienDiemTB', 'choPhepGopY'].forEach(function (k) { vals[k] = $('#s_' + k).checked; });
+    ['tenHienThi', 'loiNhanTraDiem', 'emailNhanThongBao', 'nguongBoTuc', 'soNgayGiuAnh', 'nguongChuyenCan'].forEach(function (k) { vals[k] = $('#s_' + k).value; });
+    ['hienThiThuHang', 'hienDiemTB', 'choPhepGopY', 'hienDiemCaoNhat', 'hienChuyenCan'].forEach(function (k) { vals[k] = $('#s_' + k).checked; });
     busy(this, async function () { App.state.caiDat = await Api.call('setCaiDat', { caiDat: vals }); }, { ok: 'Đã lưu cài đặt', done: true });
   };
   if ($('#sAuto')) $('#sAuto').onclick = function () {
@@ -605,7 +611,7 @@ async function screenSettings() {
 
 /* ---------------- đăng ký các trang ---------------- */
 function registerRoutes() {
-  Router.on('/', screenHome, { nav: '' });
+  Router.on('/', function () { return (App.state.user && App.state.user.role === 'loptruong') ? Router.go('/diem-danh') : screenHome(); }, { nav: '' });
   Router.on('/lop', screenRoster, { nav: 'lop' });
   Router.on('/lop/:ma', screenRoster, { nav: 'lop' });
   Router.on('/tai-khoan', function () { return isAdmin() ? screenAccounts() : Router.go('/'); }, { nav: 'tai-khoan' });
@@ -613,6 +619,17 @@ function registerRoutes() {
   Router.on('/cai-dat', function () { return isAdmin() ? screenSettings() : Router.go('/'); }, { nav: 'cai-dat' });
   if (window.registerBaiRoutes) window.registerBaiRoutes();
   if (window.registerDiemRoutes) window.registerDiemRoutes();
+  if (window.registerDdRoutes) window.registerDdRoutes();
 }
+
+/* tải trước trang một bài khi rê chuột hoặc chạm vào liên kết, để mở ra là có ngay */
+['pointerover', 'touchstart'].forEach(function (t) {
+  document.addEventListener(t, function (e) {
+    var a = e.target.closest && e.target.closest('a[href^="#/bai/"]');
+    if (!a || !Session.token()) return;
+    var m = /^#\/bai\/([^/]+)$/.exec(a.getAttribute('href'));
+    if (m && m[1] !== 'moi') Api.prefetch('getBaiFull', { maBai: m[1] });
+  }, { passive: true });
+});
 
 document.addEventListener('DOMContentLoaded', boot);
